@@ -59,6 +59,57 @@ const other404 = reqs.filter((r) => r.status === 404);
 console.log('404s:', other404.length, other404.slice(0, 5).map((r) => r.url));
 if (other404.length) fail.push(`${other404.length} requests 404d`);
 
+// Playback, sampled the way a player listens.
+//
+// `progressed` flips on a tile's first `timeupdate`, which is genuine evidence
+// that audio decoded and the media clock moved. It is not evidence a tap alone
+// can produce. An earlier version of this check clicked all sixteen tiles in a
+// tight loop and demanded eight had progressed: each click interrupted the one
+// before it, so the number it reported was a measure of how fast Playwright
+// clicks, not of whether sound came out. It failed at 4/16 on a deploy where
+// audio was perfectly fine.
+//
+// So dwell on a sample instead, and require every sampled tile to sound.
+const SAMPLE = 5;
+for (const id of ids.slice(0, SAMPLE)) {
+  await page.click(`[data-testid="tile-${id}"]`);
+  await page.waitForTimeout(700);
+}
+const sampled = await page.$$eval('[data-testid^="tile-"]', (ns) =>
+  ns.filter((n) => n.dataset.played === 'true').map((n) => n.dataset.testid));
+console.log(`tiles that actually decoded and played: ${sampled.length} / ${SAMPLE} sampled`);
+if (sampled.length < SAMPLE) fail.push(`only ${sampled.length}/${SAMPLE} sampled tiles played`);
+
+// A tile is an assembled utterance of three words, and the whole reason for
+// that is that a fragment under a couple of seconds carries no prosody to judge
+// a language by. `progressed` says sound came out; it says nothing about how
+// much. So decode the bytes the deployed site actually served and read their
+// duration — the manifest test cannot do this, because it checks what the
+// pipeline wrote, not what the CDN handed the player.
+const served = [...new Set(audio.map((r) => r.url))].slice(0, 6);
+const durations = await page.evaluate(
+  (urls) =>
+    Promise.all(
+      urls.map(
+        (url) =>
+          new Promise((resolve) => {
+            const el = new Audio();
+            el.preload = 'metadata';
+            el.addEventListener('loadedmetadata', () => resolve(el.duration));
+            el.addEventListener('error', () => resolve(0));
+            el.src = url;
+          }),
+      ),
+    ),
+  served,
+);
+const min = Math.min(...durations);
+console.log(
+  `decoded ${durations.length} served clips: min ${min.toFixed(2)}s, max ${Math.max(...durations).toFixed(2)}s`,
+);
+if (!durations.length) fail.push('could not decode any served clip');
+if (min < 2) fail.push(`a served clip is ${min.toFixed(2)}s, too short to judge a language by`);
+
 // full round with two planted mistakes
 const buckets = await page.$$eval('[data-testid^="bucket-"]', (ns) =>
   ns.map((n) => ({ testid: n.dataset.testid, label: n.textContent.trim() })));
@@ -73,10 +124,6 @@ for (const [n, id] of ids.entries()) {
   if (n < 2) planted += 1;
   await page.click(`[data-testid="${target}"]`);
 }
-const played = await page.$$eval('[data-testid^="tile-"]', (ns) => ns.filter((n) => n.dataset.played === 'true').length);
-console.log('tiles that actually decoded and played:', played, '/ 16');
-if (played < 8) fail.push(`only ${played}/16 tiles played`);
-
 await page.click('[data-testid="submit-round"]');
 await page.waitForSelector('[data-testid="final-score"]');
 const score = (await page.textContent('[data-testid="final-score"]')).trim();
