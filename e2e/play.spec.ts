@@ -138,12 +138,18 @@ test('the keyboard alone can play a round', async ({ page }) => {
   await first.focus();
   await expect(first).toBeFocused();
 
-  await page.keyboard.press('Enter'); // select tile 1
-  await page.keyboard.press('ArrowRight');
-  await page.keyboard.press('Enter'); // select tile 2
-  await page.keyboard.press('1'); // assign both to the first group
+  // Enter listens; it must never file or hold anything on its own.
+  await page.keyboard.press('Enter');
+  await expect(first).toHaveAttribute('aria-pressed', 'false');
 
-  await expect(page.getByTestId('submit-round')).toHaveText(/Submit 2 of 16/);
+  // M holds the tuned station. Two holds, then one group key files both.
+  await page.keyboard.press('m');
+  await expect(first).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('m');
+  await page.keyboard.press('1');
+
+  await expect(page.getByTestId('submit-round')).toHaveText(/2 of 16/);
 });
 
 test('stats persist across a reload', async ({ page }) => {
@@ -163,7 +169,7 @@ test('stats persist across a reload', async ({ page }) => {
   await page.goto('/#/stats');
   await page.reload();
 
-  await expect(page.getByRole('heading', { name: 'Your stats' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Your log' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Confusion matrix' })).toBeVisible();
 
   const rounds = page.getByTestId('stat-rounds');

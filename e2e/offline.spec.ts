@@ -66,10 +66,8 @@ test.describe('offline', () => {
     await tile.click();
     await expect(tile).toHaveAttribute('data-played', 'true', { timeout: 15_000 });
 
-    // Tapping a tile both plays it and selects it, so undo the selection before
-    // the scripted play-through, or the first loop iteration would toggle it off.
-    await expect(tile).toHaveAttribute('aria-pressed', 'true');
-    await tile.click();
+    // Listening is not a commitment: playing a tile tunes it but must never
+    // hold it, so the scripted play-through below needs no undo step.
     await expect(tile).toHaveAttribute('aria-pressed', 'false');
 
     for (const t of round.tiles) {
