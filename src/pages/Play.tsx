@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import manifestJson from '../content/manifest.json';
 import type { ContentManifest } from '../content/types';
 import { Board } from '../components/Board';
@@ -292,11 +292,22 @@ function RoundView({
   const manualOpen = shownStep >= 0 && shownStep < TUTORIAL_STEPS.length;
 
   // Persisting that the manual has been seen is a write to IndexedDB — a real
-  // external system — so it belongs in an effect. It fires once, when the last
-  // step is passed or the player skips out.
+  // external system — so it belongs in an effect. It fires once, the moment the
+  // manual opens.
+  //
+  // It used to fire at the other end, when the last step was passed or the
+  // player skipped out. That raced: the write is asynchronous and unawaited, and
+  // a player who skips and immediately navigates or reloads can outrun it, then
+  // gets shown the manual all over again. CI caught exactly that. Stamping on
+  // open also matches what the field claims — `tutorialSeenAt` records that the
+  // manual was shown, and by this point it has been. Anyone who wants it again
+  // has the ? button.
+  const stamped = useRef(false);
   useEffect(() => {
-    if (step >= 0 && shownStep >= TUTORIAL_STEPS.length) void markTutorialSeen();
-  }, [shownStep, step]);
+    if (step < 0 || stamped.current) return;
+    stamped.current = true;
+    void markTutorialSeen();
+  }, [step]);
 
   return (
     <div className="chassis mx-auto flex min-h-full w-full max-w-lg flex-col gap-2.5 p-3 pb-5">
