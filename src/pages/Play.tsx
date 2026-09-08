@@ -186,6 +186,10 @@ function RoundView({
       }
       setClueState(outcome.state);
       setAnnouncement('Clue purchased.');
+      // Close the shop on success. Every clue pays out on the board behind this
+      // modal, so leaving it open means the player spends coins and sees
+      // nothing until they think to dismiss it.
+      setShopOpen(false);
     },
     [clueState, coins, round, selected],
   );

@@ -1,9 +1,11 @@
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from './manifest.json';
+import { findLanguageLeak, languageTokens } from './leak';
 import type { ContentManifest } from './types';
 import { LANGUAGES, WORDS_PER_LANGUAGE } from '../../scripts/content.config';
+import { CLIP_ID_PATTERN } from '../../scripts/lib/clip-id';
 
 /**
  * Manifest integrity gate.
@@ -83,13 +85,42 @@ describe('content manifest', () => {
     }
   });
 
-  it('never leaks the answer into the audio path', () => {
-    // If the filename contained the word or the language name in a readable
-    // form, a player could read it from the browser's network tab.
+  it('never leaks the language into the clip id or the audio path', () => {
+    // The id reaches the DOM as a test hook and the path reaches the network
+    // tab. Either one carrying `ita` hands a devtools user the whole board and
+    // makes the reveal clue worthless.
+    const tokens = languageTokens(content);
     for (const clip of content.clips) {
-      expect(clip.audio).toMatch(/^audio\/[a-z]{3}\/[a-z]{3}-\d{4}\.opus$/);
+      expect(clip.id, `${clip.id} is not an opaque id`).toMatch(CLIP_ID_PATTERN);
+      expect(clip.audio).toBe(`audio/${clip.id}.opus`);
+      expect(findLanguageLeak(clip.id, tokens), `clip id ${clip.id} leaks its language`).toBeNull();
+      expect(findLanguageLeak(clip.audio, tokens), `${clip.audio} leaks its language`).toBeNull();
       expect(clip.audio).not.toContain(clip.word);
     }
+  });
+
+  it('does not order clips by language, which would leak the grouping', () => {
+    // Manifest order is a channel of its own: clips sorted into per-language
+    // runs would spell out the answer to anyone scrolling the bundled JSON.
+    // Hash order interleaves languages, so runs should be almost all length 1.
+    let runs = 1;
+    for (let i = 1; i < content.clips.length; i++) {
+      if (content.clips[i].language !== content.clips[i - 1].language) runs += 1;
+    }
+    expect(runs / content.clips.length).toBeGreaterThan(0.7);
+  });
+
+  it('ships no audio the manifest does not reference', () => {
+    // Orphans from an earlier run still get precached, costing every player
+    // bandwidth for clips the game will never play — and a stale per-language
+    // directory would put the language back into the file tree.
+    const referenced = new Set(content.clips.map((c) => c.audio.replace(/^audio\//, '')));
+    const entries = readdirSync(join(PUBLIC_DIR, 'audio'), { withFileTypes: true });
+    for (const entry of entries) {
+      expect(entry.isDirectory(), `audio/${entry.name}/ is a stale per-language directory`).toBe(false);
+      expect(referenced.has(entry.name), `audio/${entry.name} is unreferenced`).toBe(true);
+    }
+    expect(entries.length).toBe(referenced.size);
   });
 
   it('has enough speaker variety that players learn languages, not voices', () => {
@@ -110,6 +141,45 @@ describe('content manifest', () => {
     for (const language of content.languages) {
       const words = content.clips.filter((c) => c.language === language.id).map((c) => c.word);
       expect(new Set(words).size, `${language.name} has duplicate words`).toBe(words.length);
+    }
+  });
+
+  it('credits the right word when the speaker name contains a hyphen', () => {
+    // The Lingua Libre filename is `LL-Q<id> (<iso>)-<speaker>-<word>.wav`, and
+    // splitting it is ambiguous when either half contains a hyphen. The speaker
+    // comes from the file's `Artist` metadata and is authoritative; the word is
+    // guessed from the filename. For the contributor `Wikipedian-walker` the
+    // guess was wrong and the credits page published the non-word
+    // "walker-epíteto".
+    //
+    // The check is deliberately conditional. A Commons display name need not
+    // match the filename segment — `Кантемир Гонов (Kantikkantemirgonov)` is
+    // shortened to `Кантемир Гонов`, so demanding exact recomposition would
+    // fail on perfectly good data. But *when* the authoritative speaker is a
+    // literal prefix of the filename remainder, the word that follows it is
+    // known exactly, and anything else is a mis-split.
+    for (const clip of content.clips) {
+      const filename = decodeURIComponent(clip.sourceUrl.split('/wiki/File:')[1] ?? '').replace(
+        /_/g,
+        ' ',
+      );
+      expect(filename, `${clip.id} has no parseable Commons filename`).not.toBe('');
+      const rest = filename.normalize('NFC').replace(/^LL-Q\d+\s+\([a-z]{3}\)-/i, '').replace(/\.\w+$/, '');
+      const prefix = `${clip.speaker.normalize('NFC')}-`;
+      if (!rest.startsWith(prefix)) continue;
+      expect(
+        rest.slice(prefix.length),
+        `${clip.id}: speaker "${clip.speaker}" is a prefix of "${rest}", so the word is not ambiguous`,
+      ).toBe(clip.word.normalize('NFC'));
+    }
+  });
+
+  it('has no bound morphemes, which are prefixes rather than words', () => {
+    for (const clip of content.clips) {
+      expect(
+        /^[-‐‑–—]|[-‐‑–—]$/u.test(clip.word),
+        `${clip.id} is the bound morpheme "${clip.word}", not a word`,
+      ).toBe(false);
     }
   });
 });
