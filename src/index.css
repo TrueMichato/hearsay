@@ -1,0 +1,57 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-surface: #0f172a;
+  --color-surface-raised: #1e293b;
+  --color-surface-hover: #334155;
+  --color-ink: #f1f5f9;
+  --color-ink-muted: #94a3b8;
+  --color-accent: #38bdf8;
+  --color-positive: #4ade80;
+  --color-negative: #fb7185;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-ink);
+  /* Stops the pull-to-refresh gesture firing while a player works the board. */
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Every interactive element must show a visible focus ring for keyboard users.
+   `:focus-visible` shows it for keyboard focus but not for taps. */
+:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Respect a player's request for reduced motion: animation here is decorative. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes pulse-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(56 189 248 / 0.7);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgb(56 189 248 / 0);
+  }
+}
+
+.animate-pulse-ring {
+  animation: pulse-ring 0.7s ease-out;
+}
