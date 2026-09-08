@@ -4,7 +4,16 @@ import { describe, expect, it } from 'vitest';
 import manifest from './manifest.json';
 import { findLanguageLeak, languageTokens } from './leak';
 import type { ContentManifest } from './types';
-import { LANGUAGES, WORDS_PER_LANGUAGE } from '../../scripts/content.config';
+import {
+  LANGUAGES,
+  ABSOLUTE_MIN_SPEAKERS,
+  MAX_DURATION_S,
+  MIN_TILE_DURATION_S,
+  TILE_GAP_S,
+  SCHEMA_VERSION,
+  TILES_PER_LANGUAGE,
+  WORDS_PER_TILE,
+} from '../../scripts/content.config';
 import { CLIP_ID_PATTERN } from '../../scripts/lib/clip-id';
 
 /**
@@ -25,7 +34,7 @@ const PUBLIC_DIR = join(process.cwd(), 'public');
 
 describe('content manifest', () => {
   it('is not empty and matches the expected schema version', () => {
-    expect(content.schemaVersion).toBe(1);
+    expect(content.schemaVersion).toBe(SCHEMA_VERSION);
     expect(content.clips.length).toBeGreaterThan(0);
     expect(content.languages.length).toBeGreaterThan(0);
   });
@@ -33,9 +42,95 @@ describe('content manifest', () => {
   it('has every configured language populated to target', () => {
     for (const language of LANGUAGES) {
       const clips = content.clips.filter((c) => c.language === language.id);
-      expect(clips.length, `${language.name} has too few clips`).toBeGreaterThanOrEqual(
-        WORDS_PER_LANGUAGE,
+      expect(clips.length, `${language.name} has too few tiles`).toBeGreaterThanOrEqual(
+        TILES_PER_LANGUAGE,
       );
+    }
+  });
+
+  /**
+   * Every language must field enough distinct voices.
+   *
+   * With too few speakers a player stops learning the language and starts
+   * learning the people, which quietly corrupts per-language accuracy into a
+   * measure of voice recall. The pipeline enforces this, but the pipeline only
+   * runs when someone runs it; this gate fails the build on a stale manifest.
+   */
+  it('meets the speaker floor for every language', () => {
+    for (const language of LANGUAGES) {
+      const speakers = new Set(
+        content.clips.filter((c) => c.language === language.id).map((c) => c.speaker),
+      );
+      expect(
+        speakers.size,
+        `${language.name} is below the absolute minimum and should not ship`,
+      ).toBeGreaterThanOrEqual(ABSOLUTE_MIN_SPEAKERS);
+    }
+  });
+
+  /**
+   * Composite tiles must not lose per-word attribution.
+   *
+   * A tile is assembled from several source recordings whose licences differ
+   * per file — the corpus mixes CC0, CC BY 4.0 and CC BY-SA 4.0 — and the
+   * repository is public, so BY and BY-SA obligations attach to each source
+   * individually. Collapsing them to one credit line would breach the terms
+   * the files are supplied under.
+   */
+  it('carries complete per-word attribution for every composite tile', () => {
+    for (const clip of content.clips) {
+      expect(clip.sources, `${clip.id} has no sources`).toBeDefined();
+      expect(clip.sources.length, `${clip.id} wrong source count`).toBe(WORDS_PER_TILE);
+
+      for (const source of clip.sources) {
+        expect(source.word.length, `${clip.id} source has empty word`).toBeGreaterThan(0);
+        expect(source.speaker.length, `${clip.id} source has no speaker`).toBeGreaterThan(0);
+        expect(source.license.length, `${clip.id} source has no licence`).toBeGreaterThan(0);
+        expect(source.sourceUrl, `${clip.id} source has no source URL`).toMatch(
+          /^https:\/\/commons\.wikimedia\.org\/wiki\/File:/,
+        );
+      }
+
+      // One tile is one voice: mixing speakers inside a tile would defeat the
+      // point, which is to give the ear a consistent voice to read prosody from.
+      const speakers = new Set(clip.sources.map((s) => s.speaker));
+      expect(speakers.size, `${clip.id} mixes speakers`).toBe(1);
+      expect(clip.sources[0].speaker).toBe(clip.speaker);
+
+      // The displayed utterance must be exactly its constituents, so the
+      // reveal clue never shows a word the player did not hear.
+      expect(clip.word).toBe(clip.sources.map((s) => s.word).join(' '));
+    }
+  });
+
+  /**
+   * The tile's own licence must be the most restrictive of its sources.
+   *
+   * A composite is a derivative of every word in it, so offering a tile built
+   * partly from CC BY-SA material under plain CC0 would be a licence downgrade.
+   */
+  it('offers each tile under the most restrictive licence among its sources', () => {
+    const rank = (l: string) => ['CC0', 'CC BY 4.0', 'CC BY-SA 4.0'].indexOf(l);
+    for (const clip of content.clips) {
+      const strictest = clip.sources
+        .map((s) => s.license)
+        .reduce((a, b) => (rank(b) > rank(a) ? b : a));
+      expect(clip.license, `${clip.id} understates its licence`).toBe(strictest);
+    }
+  });
+
+  /**
+   * Tiles must be long enough to carry prosody.
+   *
+   * The original corpus had a median clip of 0.73s, and 253 of 560 clips ran
+   * under 0.7s. A word that short contains no rhythm, no stress pattern and no
+   * intonation contour, so the player has nothing to identify a language *by*
+   * and the game degenerates into guessing. That is the specific defect
+   * composite tiles were introduced to fix, so it gets a gate.
+   */
+  it('gives every tile enough audio to judge prosody from', () => {
+    for (const clip of content.clips) {
+      expect(clip.duration, `${clip.id} is too short to identify`).toBeGreaterThanOrEqual(2);
     }
   });
 
@@ -67,9 +162,14 @@ describe('content manifest', () => {
   });
 
   it('records a plausible duration for every clip', () => {
+    // Bounds derive from the tile format: three words each capped at
+    // MAX_DURATION_S, plus the gaps between them. The old upper bound of 3s
+    // dated from single-word clips and silently became wrong for every
+    // composite tile the moment the format changed.
+    const ceiling = MAX_DURATION_S * WORDS_PER_TILE + TILE_GAP_S * (WORDS_PER_TILE - 1);
     for (const clip of content.clips) {
-      expect(clip.duration, `${clip.id} duration`).toBeGreaterThan(0.2);
-      expect(clip.duration, `${clip.id} duration`).toBeLessThan(3);
+      expect(clip.duration, `${clip.id} duration`).toBeGreaterThanOrEqual(MIN_TILE_DURATION_S);
+      expect(clip.duration, `${clip.id} duration`).toBeLessThanOrEqual(ceiling);
     }
   });
 
@@ -158,19 +258,27 @@ describe('content manifest', () => {
     // fail on perfectly good data. But *when* the authoritative speaker is a
     // literal prefix of the filename remainder, the word that follows it is
     // known exactly, and anything else is a mis-split.
+    // A tile now derives from several source recordings, so the check runs
+    // per source: each source URL must recompose to *its own* word, not to the
+    // joined utterance the tile exposes as `clip.word`.
     for (const clip of content.clips) {
-      const filename = decodeURIComponent(clip.sourceUrl.split('/wiki/File:')[1] ?? '').replace(
-        /_/g,
-        ' ',
-      );
-      expect(filename, `${clip.id} has no parseable Commons filename`).not.toBe('');
-      const rest = filename.normalize('NFC').replace(/^LL-Q\d+\s+\([a-z]{3}\)-/i, '').replace(/\.\w+$/, '');
-      const prefix = `${clip.speaker.normalize('NFC')}-`;
-      if (!rest.startsWith(prefix)) continue;
-      expect(
-        rest.slice(prefix.length),
-        `${clip.id}: speaker "${clip.speaker}" is a prefix of "${rest}", so the word is not ambiguous`,
-      ).toBe(clip.word.normalize('NFC'));
+      for (const source of clip.sources) {
+        const filename = decodeURIComponent(source.sourceUrl.split('/wiki/File:')[1] ?? '').replace(
+          /_/g,
+          ' ',
+        );
+        expect(filename, `${clip.id} has no parseable Commons filename`).not.toBe('');
+        const rest = filename
+          .normalize('NFC')
+          .replace(/^LL-Q\d+\s+\([a-z]{3}\)-/i, '')
+          .replace(/\.\w+$/, '');
+        const prefix = `${source.speaker.normalize('NFC')}-`;
+        if (!rest.startsWith(prefix)) continue;
+        expect(
+          rest.slice(prefix.length),
+          `${clip.id}: speaker "${source.speaker}" is a prefix of "${rest}", so the word is not ambiguous`,
+        ).toBe(source.word.normalize('NFC'));
+      }
     }
   });
 

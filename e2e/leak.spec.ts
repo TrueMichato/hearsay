@@ -94,3 +94,31 @@ test('the reveal clue is the only way the language appears on a tile', async ({ 
     'exactly the one purchased tile should name its language',
   ).toEqual([`tile-${round.tiles[0].id}`]);
 });
+
+test('composite source URLs never reach the DOM during an unscored round', async ({ page }) => {
+  // Composite tiles introduced a new leak surface. Each tile now carries a
+  // `sources[]` array for attribution, and every Commons URL in it spells the
+  // language out in the filename:
+  //
+  //   https://commons.wikimedia.org/wiki/File:LL-Q1321_(spa)-Aike_1942-chinitos.wav
+  //
+  // That data legitimately ships in the manifest and is legally required on the
+  // credits page, but if it were ever rendered onto a tile — a tooltip, a
+  // `title` attribute, a debug hook — it would hand over the answer far more
+  // plainly than the old `ita-0013` ids ever did.
+  const round = generateRound(content, { difficulty: 'medium', seed: 'leak-sources' });
+  const sourceUrls = round.tiles.flatMap((t) => {
+    const clip = content.clips.find((c) => c.id === t.id);
+    return clip?.sources?.map((s) => s.sourceUrl) ?? [];
+  });
+  expect(sourceUrls.length, 'round should have composite sources to check').toBeGreaterThan(0);
+
+  await page.goto('/#/play/medium/leak-sources');
+  await expect(page.locator('[data-testid^="tile-"]')).toHaveCount(16);
+
+  const html = await page.content();
+  for (const url of sourceUrls) {
+    const file = url.split('/').pop()!;
+    expect(html, `source filename "${file}" is exposed in the DOM`).not.toContain(file);
+  }
+});
