@@ -1,11 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import manifest from '../content/manifest.json';
 import type { ContentManifest } from '../content/types';
-import { generateRound, partitionTiles } from './board';
+import { generateRound, maxLanguagesFor, partitionTiles } from './board';
 import { createRng } from './rng';
-import { BOARD_SIZE } from './types';
+import { BOARD_SIZE, type Difficulty } from './types';
 
 const content = manifest as ContentManifest;
+
+/** Similarity cluster a language belongs to, per the shipped manifest. */
+const clusterOf = (id: string) =>
+  content.languages.find((l) => l.id === id)?.cluster ?? `solo:${id}`;
 
 describe('createRng', () => {
   it('is deterministic for a given seed', () => {
@@ -94,18 +98,111 @@ describe('generateRound', () => {
     }
   });
 
-  it('usually draws from a single confusable cluster', () => {
+  it('usually draws hard boards from a single confusable cluster', () => {
     // The premise of the game is telling *similar* languages apart, so most
-    // boards must be intra-cluster. This asserts the bias actually took effect.
+    // Hard boards must be intra-cluster. This asserts the bias took effect.
     let intraCluster = 0;
     const samples = 60;
     for (let s = 0; s < samples; s++) {
-      const round = generateRound(content, { difficulty: 'easy', seed: `cluster-${s}` });
-      const clusters = new Set(
-        round.languages.map((id) => content.languages.find((l) => l.id === id)?.cluster),
-      );
-      if (clusters.size === 1) intraCluster++;
+      const round = generateRound(content, { difficulty: 'hard', seed: `cluster-${s}` });
+      if (new Set(round.languages.map(clusterOf)).size === 1) intraCluster++;
     }
     expect(intraCluster / samples).toBeGreaterThan(0.5);
+  });
+});
+
+/**
+ * Difficulty must control how *confusable* the languages are, not just whether
+ * buckets carry names. An Easy round of Spanish/Portuguese/Catalan/Italian is
+ * harder than most Hard rounds, and scaffolding does not redeem it.
+ */
+describe('similarity policy', () => {
+  const sample = (difficulty: Difficulty, samples = 120) =>
+    Array.from({ length: samples }, (_, s) =>
+      generateRound(content, { difficulty, seed: `sim-${difficulty}-${s}` }).languages,
+    );
+
+  /** How many languages the most-represented cluster contributed. */
+  const worstClusterLoad = (languages: string[]) => {
+    const counts = new Map<string, number>();
+    for (const id of languages) {
+      const c = clusterOf(id);
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    return Math.max(...counts.values());
+  };
+
+  it('never puts two same-cluster languages on an easy board', () => {
+    for (const languages of sample('easy')) {
+      expect({ languages, load: worstClusterLoad(languages) }).toMatchObject({ load: 1 });
+    }
+  });
+
+  it('allows medium at most one confusable pair', () => {
+    for (const languages of sample('medium')) {
+      const counts = new Map<string, number>();
+      for (const id of languages) {
+        const c = clusterOf(id);
+        counts.set(c, (counts.get(c) ?? 0) + 1);
+      }
+      const doubled = [...counts.values()].filter((n) => n > 1);
+      expect({ languages, doubled }).toMatchObject({ doubled: expect.any(Array) });
+      expect(doubled.length).toBeLessThanOrEqual(1);
+      expect(Math.max(...counts.values())).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it('does lean into tight clusters on hard', () => {
+    const leaning = sample('hard').filter((languages) => worstClusterLoad(languages) >= 2);
+    expect(leaning.length / 120).toBeGreaterThan(0.5);
+  });
+
+  it('holds the policy even when the corpus forces clusters to double up', () => {
+    // With fourteen languages across six clusters the greedy pass never has to
+    // take a second language from any cluster, so the ceilings above are not
+    // actually exercised by the shipped manifest — a mutation to them survives.
+    // This narrows the corpus to two clusters so the policy has to bite.
+    const ids = ['spa', 'por', 'ita', 'cat', 'rus', 'pol', 'ukr', 'ces'];
+    const twoClusters: ContentManifest = {
+      ...content,
+      languages: content.languages.filter((l) => ids.includes(l.id)),
+      clusters: content.clusters.filter((c) => ['romance', 'slavic'].includes(c.id)),
+      clips: content.clips.filter((c) => ids.includes(c.language)),
+    };
+
+    for (let s = 0; s < 60; s++) {
+      const easy = generateRound(twoClusters, { difficulty: 'easy', seed: `tight-${s}` });
+      expect(easy.languages, 'easy must shrink rather than serve a confusable pair').toHaveLength(2);
+      expect(new Set(easy.languages.map(clusterOf)).size).toBe(2);
+
+      const medium = generateRound(twoClusters, { difficulty: 'medium', seed: `tight-${s}` });
+      const counts = new Map<string, number>();
+      for (const id of medium.languages) counts.set(clusterOf(id), (counts.get(clusterOf(id)) ?? 0) + 1);
+      expect([...counts.values()].filter((n) => n > 1).length).toBe(1);
+      expect(medium.languages).toHaveLength(3);
+    }
+  });
+
+  it('still gives easy the full 3-4 buckets the design promises', () => {
+    // Easy takes one language per cluster, so the corpus must carry at least 4
+    // clusters or Easy silently degrades to 3 buckets forever. This is the
+    // guard on `maxLanguagesFor`'s clamp: if it ever bites, this fails first.
+    expect(maxLanguagesFor(content, 'easy')).toBeGreaterThanOrEqual(4);
+    const sizes = new Set(sample('easy').map((l) => l.length));
+    expect([...sizes].sort()).toEqual([3, 4]);
+  });
+
+  it('reports a smaller ceiling when the corpus has too few clusters', () => {
+    // A thin corpus must degrade to a smaller *correct* board, not crash and
+    // not quietly serve confusable languages under an Easy label.
+    const thin: ContentManifest = {
+      ...content,
+      languages: content.languages.filter((l) => ['spa', 'por', 'ita'].includes(l.id)),
+      clips: content.clips.filter((c) => ['spa', 'por', 'ita'].includes(c.language)),
+    };
+    expect(maxLanguagesFor(thin, 'easy')).toBe(1);
+    expect(maxLanguagesFor(thin, 'medium')).toBe(2);
+    expect(maxLanguagesFor(thin, 'hard')).toBe(3);
+    expect(generateRound(thin, { difficulty: 'medium', seed: 'thin' }).languages).toHaveLength(2);
   });
 });

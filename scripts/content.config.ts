@@ -57,15 +57,25 @@ export const REQUEST_DELAY_MS = 150;
 export const DOWNLOAD_DELAY_MS = 600;
 
 /**
- * The ten prototype languages, arranged into three deliberately confusable
- * clusters. Recording counts (verified against the live Commons API) are noted
- * so it is obvious which languages have headroom to scale.
+ * The prototype languages, arranged into similarity clusters. Recording counts
+ * (verified against the live Commons API) are noted so it is obvious which
+ * languages have headroom to scale.
  *
- * Cluster *size* matters as much as membership: Easy and Medium boards draw
- * 3-4 languages, so a cluster of only three can never fill a four-language
- * board on its own and would silently force every such board to mix unrelated
- * languages — making it far easier than intended. Romance and Slavic therefore
- * carry four members each.
+ * A cluster is the game's unit of *confusability*, and it is load-bearing in
+ * two opposite directions:
+ *
+ *  - **Hard** draws from inside one cluster, so a cluster smaller than the
+ *    board's language count can never fill a board on its own. Romance and
+ *    Slavic therefore carry four members each.
+ *  - **Easy** draws at most one language per cluster, so the *number of
+ *    clusters* caps how many buckets an Easy board can have. With only the
+ *    three original families (Romance, Slavic, East Asian) a four-bucket Easy
+ *    board was impossible without repeating a family — which is exactly the
+ *    "Easy served me Spanish/Portuguese/Catalan/Italian" failure. Germanic,
+ *    Turkic and Basque exist to give Easy room to breathe.
+ *
+ * Singleton clusters are legitimate: Turkish and Basque have no close relative
+ * in this corpus, which is precisely what makes them good Easy material.
  */
 export const LANGUAGES: LanguageMeta[] = [
   // --- Romance: the classic "is that Spanish or Portuguese?" trap ---
@@ -83,24 +93,35 @@ export const LANGUAGES: LanguageMeta[] = [
   // --- East Asian: unrelated languages that untrained ears routinely swap ---
   { id: 'jpn', iso639_3: 'jpn', name: 'Japanese', nativeName: '日本語', script: 'japanese', cluster: 'east-asian', color: '#ec4899' }, // 1043
   { id: 'kor', iso639_3: 'kor', name: 'Korean', nativeName: '한국어', script: 'hangul', cluster: 'east-asian', color: '#84cc16' }, // 1024
+
+  // --- Germanic: close enough to pair, distant from everything above ---
+  { id: 'deu', iso639_3: 'deu', name: 'German', nativeName: 'Deutsch', script: 'latin', cluster: 'germanic', color: '#eab308' }, // 26112
+  { id: 'swe', iso639_3: 'swe', name: 'Swedish', nativeName: 'Svenska', script: 'latin', cluster: 'germanic', color: '#14b8a6' }, // 9729
+
+  // --- Singletons: no close relative in this corpus, so ideal Easy material ---
+  { id: 'tur', iso639_3: 'tur', name: 'Turkish', nativeName: 'Türkçe', script: 'latin', cluster: 'turkic', color: '#e11d48' }, // 6645
+  { id: 'eus', iso639_3: 'eus', name: 'Basque', nativeName: 'Euskara', script: 'latin', cluster: 'basque', color: '#22c55e' }, // 20686
 ];
 
 export const CLUSTERS: LanguageCluster[] = [
   { id: 'romance', name: 'Romance', languages: ['spa', 'por', 'ita', 'cat'] },
   { id: 'slavic', name: 'Slavic', languages: ['rus', 'pol', 'ukr', 'ces'] },
   { id: 'east-asian', name: 'East Asian', languages: ['jpn', 'kor'] },
+  { id: 'germanic', name: 'Germanic', languages: ['deu', 'swe'] },
+  { id: 'turkic', name: 'Turkic', languages: ['tur'] },
+  { id: 'basque', name: 'Basque', languages: ['eus'] },
 ];
 
 /**
  * Languages verified to exist on Commons but excluded from the prototype.
  * Kept here so the reasoning is not lost, and so scaling up is a copy-paste.
  *
- *   fra 433889 · deu 26112 · ron 24088 · eus 20686 · ara 13749 · swe 9729
- *   tur 6645 · cmn 4122 · heb 3615 · hin 3431 · vie 3100 · nld 1825
+ *   fra 433889 · ron 24088 · ara 13749 · cmn 4122 · heb 3615 · hin 3431
+ *   vie 3100 · nld 1825
  *
  * Genuinely unusable: Greek (0 recordings). Too thin to curate 40 clean words:
  * Danish (147), Finnish (219), Hungarian (259).
  */
 export const DEFERRED_LANGUAGES = [
-  'fra', 'deu', 'ron', 'eus', 'ara', 'swe', 'tur', 'cmn', 'heb', 'hin', 'vie', 'nld',
+  'fra', 'ron', 'ara', 'cmn', 'heb', 'hin', 'vie', 'nld',
 ] as const;
