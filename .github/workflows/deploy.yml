@@ -1,0 +1,82 @@
+# Build, test and deploy Hearsay to GitHub Pages.
+#
+# The site is a *project* page, served from https://<user>.github.io/hearsay/
+# rather than the domain root, so the build is given an explicit BASE_PATH.
+# Without it the HTML would still load and the deploy would look successful
+# while every asset 404s — a blank board and silent tiles.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# `pages: write` and `id-token: write` are what actions/deploy-pages needs to
+# publish; it authenticates with a short-lived OIDC token rather than a PAT.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race. `cancel-in-progress: false` because cancelling a
+# half-finished deploy can leave the site in a broken state — better to queue.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # A separate job from the deploy, so a failing test cannot publish. The deploy
+  # job `needs` this one, and GitHub will not start it if this one fails.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - run: npm run e2e
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build for the project-page subpath
+        # Derived from the repository name rather than hardcoded, so a rename or
+        # a fork deploys correctly without editing this file.
+        run: BASE_PATH="/${GITHUB_REPOSITORY#*/}/" npm run build
+      - name: Fail if the build did not pick up the base path
+        # Cheap guard against the exact failure this whole file exists to avoid.
+        # If assets are still root-absolute the deploy would publish a blank page.
+        run: |
+          BASE="/${GITHUB_REPOSITORY#*/}/"
+          grep -q "src=\"${BASE}assets/" dist/index.html \
+            || { echo "::error::dist/index.html does not reference ${BASE}assets/ — BASE_PATH did not apply"; exit 1; }
+          test -f dist/sw.js || { echo "::error::no service worker in dist/"; exit 1; }
+          echo "index.html references ${BASE}assets/ and a service worker is present"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -11,7 +11,8 @@
     "content": "tsx scripts/fetch-content.ts",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "verify:deploy": "node scripts/verify-deploy.mjs"
   },
   "dependencies": {
     "dexie": "^4.4.5",
