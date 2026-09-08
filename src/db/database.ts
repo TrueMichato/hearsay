@@ -139,11 +139,16 @@ export class HearsayDatabase extends Dexie {
 export const db = new HearsayDatabase();
 
 /** Read the profile, creating it on first run. */
-export async function getProfile(): Promise<ProfileRecord> {
-  const existing = await db.profile.get(PROFILE_ID);
-  if (existing) return existing;
-
-  const fresh: ProfileRecord = {
+/**
+ * A brand-new player's profile, as a plain value.
+ *
+ * Deliberately pure. Reading the profile must never write, because the UI reads
+ * it through a Dexie live query, and live queries run in a read-only
+ * transaction — a write there throws. It also means simply opening the app
+ * leaves no trace on disk until the player actually finishes a round.
+ */
+export function newProfile(): ProfileRecord {
+  return {
     id: PROFILE_ID,
     coins: STARTING_COINS,
     totalRounds: 0,
@@ -156,8 +161,11 @@ export async function getProfile(): Promise<ProfileRecord> {
     lastPlayedDay: null,
     createdAt: Date.now(),
   };
-  await db.profile.put(fresh);
-  return fresh;
+}
+
+/** Reads the stored profile, falling back to a fresh one. Never writes. */
+export async function getProfile(): Promise<ProfileRecord> {
+  return (await db.profile.get(PROFILE_ID)) ?? newProfile();
 }
 
 export async function setCoins(coins: number): Promise<void> {
@@ -228,7 +236,7 @@ export async function recordRound(input: RecordRoundInput): Promise<ProfileRecor
         });
       }
 
-      const profile = (await db.profile.get(PROFILE_ID)) ?? (await getProfile());
+      const profile = (await db.profile.get(PROFILE_ID)) ?? newProfile();
 
       const dayStreak =
         profile.lastPlayedDay === playedDay

@@ -24,6 +24,15 @@ export interface BoardAudio {
   playing: string | null;
   /** Tile ids that have finished preloading. */
   loaded: Set<string>;
+  /**
+   * Tile ids whose audio has genuinely advanced past 0s.
+   *
+   * `timeupdate` only fires when the media clock actually moves, so this is
+   * evidence of real decoded playback rather than of a play() call that
+   * silently failed. The board surfaces it as a data attribute so end-to-end
+   * tests can assert sound really happened.
+   */
+  progressed: Set<string>;
   /** True once every tile on the board can play without buffering. */
   ready: boolean;
   /** Set if the browser refused to play, so the UI can explain itself. */
@@ -44,6 +53,7 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
   const current = useRef<HTMLAudioElement | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
+  const [progressed, setProgressed] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +79,10 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
       el.src = `${import.meta.env.BASE_URL}${tile.audio}`;
       el.addEventListener('canplaythrough', () => {
         setLoaded((prev) => (prev.has(tile.id) ? prev : new Set(prev).add(tile.id)));
+      });
+      el.addEventListener('timeupdate', () => {
+        if (el.currentTime <= 0) return;
+        setProgressed((prev) => (prev.has(tile.id) ? prev : new Set(prev).add(tile.id)));
       });
       el.addEventListener('ended', () => setPlaying(null));
       el.load();
@@ -122,6 +136,7 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
     stop,
     playing,
     loaded,
+    progressed,
     ready: tiles.length > 0 && tiles.every((t) => loaded.has(t.id)),
     error,
   };

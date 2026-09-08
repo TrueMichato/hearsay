@@ -1,5 +1,5 @@
 import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getProfile, PROFILE_ID, type ProfileRecord } from '../db/database';
+import { getProfile, type ProfileRecord } from '../db/database';
 
 /**
  * The player's wallet and streaks, kept live.
@@ -9,8 +9,8 @@ import { db, getProfile, PROFILE_ID, type ProfileRecord } from '../db/database';
  * global state library.
  */
 export function useProfile(): ProfileRecord | undefined {
-  return useLiveQuery(async () => {
-    const existing = await db.profile.get(PROFILE_ID);
-    return existing ?? (await getProfile());
-  }, []);
+  // Read-only on purpose: `useLiveQuery` runs its query inside a read-only
+  // transaction, so creating a missing profile here would throw a DexieError
+  // and blank the screen. The row is written for the first time by recordRound.
+  return useLiveQuery(() => getProfile(), []);
 }

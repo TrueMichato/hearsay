@@ -16,7 +16,7 @@ import type { Difficulty } from './game/types';
  */
 type Route =
   | { name: 'home' }
-  | { name: 'play'; difficulty: Difficulty }
+  | { name: 'play'; difficulty: Difficulty; seed?: string }
   | { name: 'stats' }
   | { name: 'credits' };
 
@@ -24,9 +24,12 @@ const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 
 function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
-  const [head, tail] = path.split('/');
+  const [head, tail, seed] = path.split('/');
   if (head === 'play' && DIFFICULTIES.includes(tail as Difficulty)) {
-    return { name: 'play', difficulty: tail as Difficulty };
+    // An optional seed makes a board reproducible: the same seed always deals
+    // the same sixteen clips. End-to-end tests rely on it, and it is what a
+    // "share this board" or daily-challenge feature would be built on.
+    return { name: 'play', difficulty: tail as Difficulty, seed: seed || undefined };
   }
   if (head === 'stats') return { name: 'stats' };
   if (head === 'credits') return { name: 'credits' };
@@ -53,8 +56,9 @@ export function App() {
       return (
         <Play
           // Remounting on difficulty change resets all round state cleanly.
-          key={route.difficulty}
+          key={`${route.difficulty}:${route.seed ?? ''}`}
           difficulty={route.difficulty}
+          initialSeed={route.seed}
           onExit={goHome}
         />
       );

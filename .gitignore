@@ -26,3 +26,5 @@ dist-ssr
 # Content pipeline network + source-audio cache (regenerate with `npm run content`)
 .cache/
 .impeccable/
+test-results/
+playwright-report/

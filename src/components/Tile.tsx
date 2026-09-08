@@ -7,6 +7,8 @@ export interface TileProps {
   selected: boolean;
   playing: boolean;
   loaded: boolean;
+  /** True once this clip's media clock has actually advanced. */
+  progressed: boolean;
   /** Short label of the group this tile sits in, e.g. "A" or "Spanish". */
   assignedLabel: string | null;
   /** Colour from the colour-code clue, if bought. */
@@ -42,6 +44,7 @@ export const Tile = memo(function Tile({
   selected,
   playing,
   loaded,
+  progressed,
   assignedLabel,
   clueColor,
   revealedWord,
@@ -70,6 +73,7 @@ export const Tile = memo(function Tile({
       onKeyDown={onKeyDown}
       data-testid={`tile-${tile.id}`}
       data-tile-index={index}
+      data-played={progressed ? 'true' : 'false'}
       className={[
         'relative flex aspect-square min-h-[64px] w-full flex-col items-center justify-center gap-1',
         'rounded-2xl border-2 p-1 transition-colors duration-150',

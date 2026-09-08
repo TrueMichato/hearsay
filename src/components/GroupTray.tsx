@@ -85,7 +85,7 @@ export function GroupTray({
               {/* The number-key accelerator is only worth advertising for the
                   first five groups, which is also the maximum the game allows. */}
               {index < 5 && (
-                <span aria-hidden="true" className="text-[10px] text-slate-500">
+                <span aria-hidden="true" className="text-[10px] text-slate-400">
                   press {index + 1}
                 </span>
               )}

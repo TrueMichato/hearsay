@@ -10,6 +10,8 @@ export interface BoardProps {
   selected: Set<string>;
   playing: string | null;
   loaded: Set<string>;
+  /** Tile ids whose audio has verifiably advanced. Surfaced for tests. */
+  progressed: Set<string>;
   /** Bucket id -> short label shown on the tile badge. */
   bucketLabels: Record<string, string>;
   clueColors: Record<string, string>;
@@ -41,6 +43,7 @@ export function Board({
   selected,
   playing,
   loaded,
+  progressed,
   bucketLabels,
   clueColors,
   revealedWords,
@@ -131,6 +134,7 @@ export function Board({
           selected={selected.has(tile.id)}
           playing={playing === tile.id}
           loaded={loaded.has(tile.id)}
+          progressed={progressed.has(tile.id)}
           assignedLabel={assignment[tile.id] ? (bucketLabels[assignment[tile.id]] ?? null) : null}
           clueColor={clueColors[tile.id] ?? null}
           revealedWord={revealedWords.has(tile.id) ? tile.word : null}

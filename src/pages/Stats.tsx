@@ -37,7 +37,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
   return (
     <Shell onBack={onBack}>
       <dl className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-        <Stat label="Rounds" value={profile.totalRounds} />
+        <Stat label="Rounds" value={profile.totalRounds} testId="stat-rounds" />
         <Stat label="Best score" value={profile.bestScore} />
         <Stat label="Day streak" value={`${profile.dayStreak} (best ${profile.bestDayStreak})`} />
         <Stat label="Win streak" value={`${profile.winStreak} (best ${profile.bestWinStreak})`} />
@@ -257,11 +257,21 @@ function Section({
   );
 }
 
-function Stat({ label, value }: { label: string; value: number | string }) {
+function Stat({
+  label,
+  value,
+  testId,
+}: {
+  label: string;
+  value: number | string;
+  testId?: string;
+}) {
   return (
     <div className="rounded-xl bg-slate-800/60 px-2 py-2 text-center">
       <dt className="text-[11px] text-slate-400">{label}</dt>
-      <dd className="text-base font-bold tabular-nums">{value}</dd>
+      <dd data-testid={testId} className="text-base font-bold tabular-nums">
+        {value}
+      </dd>
     </div>
   );
 }

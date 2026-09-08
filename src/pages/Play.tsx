@@ -31,8 +31,12 @@ export interface PlayProps {
   onExit: () => void;
 }
 
-export function Play({ difficulty, onExit }: PlayProps) {
-  const [seed, setSeed] = useState(randomSeed);
+export function Play({
+  difficulty,
+  initialSeed,
+  onExit,
+}: PlayProps & { initialSeed?: string }) {
+  const [seed, setSeed] = useState(() => initialSeed ?? randomSeed());
 
   // Remounting per seed is what keeps every round-scoped piece of state — the
   // assignment, the clues bought, the loaded audio — from leaking into the next
@@ -255,6 +259,7 @@ function RoundView({
         selected={selected}
         playing={audio.playing}
         loaded={audio.loaded}
+        progressed={audio.progressed}
         bucketLabels={bucketLabels}
         clueColors={clueColors}
         revealedWords={new Set(clueState.revealedWords)}
