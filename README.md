@@ -128,8 +128,10 @@ Browser speech synthesis was rejected deliberately: the available voices differ
 by device and operating system, so two players would hear materially different
 games and no score or statistic would be comparable.
 
-**Licences vary per file.** The current corpus is CC0 ×285, CC BY-SA 4.0 ×199
-and CC BY 4.0 ×76. CC BY and CC BY-SA both *require* naming the author and
+**Licences vary per file.** A tile is assembled from three source recordings,
+so licences are counted per *source*: CC0 ×633, CC BY-SA 4.0 ×531, CC BY 4.0
+×153 and CC BY-SA 3.0 ×3, across 1,320 source recordings. A tile inherits the
+most restrictive licence of its constituents. CC BY and CC BY-SA both *require* naming the author and
 linking the licence, so per-clip licence, speaker and source URL are captured in
 the manifest and rendered on the in-app credits page. That page is a legal
 obligation, not decoration. Because the repository is public, the audio is also
@@ -138,6 +140,52 @@ emits [`ATTRIBUTION.md`](./ATTRIBUTION.md) — the same per-clip credits in a fo
 that travels with the files. The clips are modified (trimmed,
 loudness-normalised, metadata-stripped, re-encoded to Opus), so the CC BY-SA
 ones are redistributed under CC BY-SA 4.0 as ShareAlike requires.
+
+### Why a tile is three words, not one
+
+The first prototype played a single word per tile. Measured across that corpus
+the median clip was **0.73 s**, and 253 of 560 were under 0.7 s. Players said the
+game felt arbitrary, and they were right — but the cause was content, not
+encoding.
+
+Telling languages apart by ear relies on **prosody**: the rhythm of syllables,
+where stress lands, the melody of the intonation contour, and which sound
+sequences a language even permits. Almost none of that is audible in four
+tenths of a second. The player hears a fragment and guesses.
+
+A tile is now an utterance of **three words by the same speaker in the same
+language**, joined by a 250 ms pause. Same voice within a tile, different voices
+across tiles. The current corpus measures:
+
+| | min | p10 | median | p90 | max |
+|---|---|---|---|---|---|
+| tile duration (s) | 2.00 | 2.40 | 3.17 | 4.34 | 5.54 |
+
+Nothing under 2 s, enforced by `MIN_TILE_DURATION_S`: a tile whose words are
+predicted to fall short is rejected before it is ever encoded, and the
+round-robin forms another from the remaining words.
+
+Every source word keeps its own attribution. A tile derives from three files
+whose licences genuinely differ, so `ClipMeta.sources[]` records the word,
+speaker, licence and source URL of each, and the credits page lists all of them
+individually.
+
+### Onset clipping, measured rather than assumed
+
+Silence trimming used a `-45 dB` peak threshold. Soft onsets — fricatives like
+/f/ and /s/, aspirated stops, a quiet initial /h/ — can sit below that and get
+chopped, which makes a word sound truncated. Rather than assume, the two
+thresholds were compared with `silencedetect` across 140 cached recordings:
+
+> median difference 6.7 ms, p75 82 ms, p90 187 ms, max 299 ms —
+> **31% of clips were losing more than 50 ms of onset.**
+
+At that scale the discarded audio is speech, not room tone. The chain now trims
+at `-55 dB` and keeps a 40 ms lead-in pad. Loudness normalisation is also
+two-pass rather than single-pass, because single-pass `loudnorm` is only
+approximate and inconsistent loudness between tiles is itself a "bad sound"
+symptom — and, more importantly, a fairness problem, since volume must not
+become an unintended tell.
 
 ### Regenerating the corpus
 
@@ -148,12 +196,18 @@ npm run content -- rus pol # just these two
 
 Scaling to more languages is a change to `scripts/content.config.ts` and nothing
 else. Recording counts for the candidate languages are noted there in comments.
-That claim has now been exercised rather than asserted: the corpus grew from ten
-languages to **fourteen** (560 clips, 94 distinct speakers, 2.6 MB) by editing
-that file alone. The four additions — German, Swedish, Turkish, Basque — were
-not decoration. Easy takes one language per similarity group, so with only three
-groups a four-bucket Easy board was arithmetically impossible; the additions
-brought the corpus to six groups.
+That claim has now been exercised twice rather than asserted. The corpus grew
+from ten languages to fourteen, and then to **twenty-two** — 440 tiles, 1,320
+source recordings, **296 distinct speakers**, 4.8 MB — by editing that file
+alone.
+
+The second expansion was about reach, not count. Eleven of the fourteen shipped
+languages were European, and **French was missing entirely** despite having the
+largest corpus on Lingua Libre at 433,889 recordings. The roster now adds
+French, Arabic, Mandarin, Hindi, Hebrew, Romanian, Dutch and Indonesian, so a
+game about telling the world's languages apart draws on more than one continent.
+Indonesian was not on the request list: it turned up during verification with
+7,104 recordings and a wide contributor base, and cost nothing to add.
 
 Requires `ffmpeg`; the pipeline falls back to the `ffmpeg-static` npm binary and
 fails with instructions if neither is available.
@@ -197,6 +251,51 @@ Two subtleties worth knowing:
   to draw on, German still filled its full 40 words from verbs, adjectives and
   adverbs. The cost was affordable; the check was worth keeping.
 
+### Choosing which languages appear
+
+Difficulty controls two independent things, and both had to be made explicit
+after a real complaint about each.
+
+**Similarity.** An Easy round once served Spanish / Portuguese / Catalan /
+Italian — the four most confusable Romance languages in the corpus. Scaffolding
+is not difficulty when the underlying task is impossible. Every language now
+carries a `cluster`, and Easy takes at most one language per cluster; Hard
+deliberately leans *into* a cluster.
+
+**Recognisability.** An Easy round then served Polish / Basque / Swedish. Three
+unrelated families, so perfectly legal under the similarity rule, yet most
+players cannot name Basque and so have nothing to reason with. Languages now
+also carry a `familiarity` tier — `household`, `known`, `obscure`. Easy draws
+only from `household`; Medium adds `known`; Hard allows everything, where "what
+even *is* that?" is the intended feeling.
+
+The two constraints are independent and both apply. The policy lives in
+`src/game/language-policy.ts`, deliberately separate from board construction.
+
+### The speaker floor, and what the corpus actually allows
+
+With too few voices a player learns the *people* rather than the language, which
+quietly turns per-language accuracy into a measure of voice recall. The target
+is 10 distinct speakers per language.
+
+Whether that is reachable is a fact about Lingua Libre, not a knob. It is
+volunteer-recorded, and several languages were contributed by a handful of
+people. So the pipeline measures the ceiling itself — distinct speakers holding
+at least a tile's worth of *curated* words — and applies two separate rules:
+
+- Falling short of what the corpus can supply is a **pipeline regression** and
+  fails the build.
+- Being at the ceiling but under the target is **reported, not failed**.
+- Falling under `ABSOLUTE_MIN_SPEAKERS` means the language should not ship.
+
+This matters because curation, not selection, is what removes voices: German has
+84 contributors in its category but only 31 survive curation, since German
+capitalises every noun and the proper-noun filter is necessarily blunt.
+
+Vietnamese was requested for the roster and is deliberately **absent**: it
+yields only four usable speakers, and including it would have satisfied the
+roster request while defeating the diversity requirement made alongside it.
+
 ### A sampling trap worth knowing about
 
 Lingua Libre content arrives in **batches with a shared character**. Sampling
@@ -205,14 +304,38 @@ phrases and starved the language to 10 usable words out of 40. The fetcher now
 draws half from the newest end of a category and half from the oldest, so no
 single upload session can dominate a language.
 
+A second, worse version of the same trap cost a full rebuild. Commons returns
+category members sorted by **file title**, and a Lingua Libre title embeds the
+speaker *before* the word:
+
+```
+LL-Q7737 (rus)-Tatiana Kerbush-словарь.wav
+               ^^^^^^^^^^^^^^
+```
+
+Members therefore arrive in contiguous alphabetical blocks *per speaker*, so
+capping enumeration does not sample a language — it truncates the **contributor
+roster**. A 6,000-member Russian pool contained exactly 10 distinct speakers,
+drawn from a category of 34,359 recordings. The pipeline was not sampling
+Russian; it was sampling the first ten Russians alphabetically.
+
+This produced no error, and every summary count looked healthy. Only the speaker
+floor surfaced it. Raising `CANDIDATE_POOL_SIZE` took Russian from 5 usable
+speakers to 20.
+
 ### Why the audio is committed
 
-The source WAVs total 48 MB. Transcoded to Opus the whole corpus is **2.6 MB —
-an 18× reduction**, smaller than a couple of photographs. That is cheap enough
-to commit, and committing it buys two things worth more than the bytes: genuine
-offline-first play, and a deterministic corpus, so every player gets the same
-game. Runtime fetching with Cache API storage would have saved 2.6 MB in the
-repository and cost both.
+Transcoded to Opus the whole corpus is **4.8 MB** for 440 tiles — around 11 KB
+per tile, smaller than a single photograph. That is cheap enough to commit, and
+committing it buys two things worth more than the bytes: genuine offline-first
+play, and a deterministic corpus, so every player gets the same game. Runtime
+fetching with Cache API storage would have saved those megabytes and cost both.
+
+Tiles are four times longer than the single words they replaced, which would
+have quadrupled the payload at the old bitrate. The Opus bitrate was dropped
+from 32k to 24k to absorb most of that, chosen by measurement rather than
+taste — see `OPUS_BITRATE` in `scripts/content.config.ts` for the energy-loss
+figures in the fricative and formant bands that decided it.
 
 Audio is also **loudness-normalised**. That is a fairness measure rather than
 polish: if one language's contributors happened to record louder, volume becomes
@@ -307,6 +430,20 @@ broken at its real call site, observed failing, and restored:
 | **Non-opaque id** | Set one clip id back to `rus-0001` | `rus-0001 is not an opaque id` |
 | **Mis-split filename** | Made `refineWord` ignore the authoritative speaker | `expected 'walker-epíteto' to be 'epíteto'` |
 | **Bound morpheme** | Removed the leading/trailing-hyphen check | `expected { ok: true } to deeply equal { reason: 'bound-morpheme' }` |
+| **Composite source leak** | Rendered `sources[].sourceUrl` in a tile `title` via a manifest lookup | 5 leak tests failed, incl. the composite-source gate |
+| **Clip id leak** | Set one clip id to `ita-0013` | `clip id ita-0013 leaks its language` |
+| **Audio path leak** | Bucketed one clip as `audio/<lang>/…` | 3 failures |
+| **Manifest ordering** | Sorted clips by language | ordering gate failed |
+| **Speaker collapse** | Gave every Korean tile one speaker name | 2 failures |
+| **Short tile** | Set one tile's duration to 1.2 s | duration gate failed |
+| **Missing per-source licence** | Blanked one `sources[].license` | attribution gate failed |
+| **Missing per-source URL** | Blanked one `sources[].sourceUrl` | 2 failures |
+| **Utterance/source mismatch** | Set `clip.word` to `tampered` | attribution gate failed |
+| **Two voices in one tile** | Changed one source's speaker | one-voice gate failed |
+| **Easy similarity (thin corpus)** | `easy.maxPerCluster` 1 → 2 | `doubled a cluster` on the scarce fixture |
+| **Hard cluster freedom** | `hard.maxPerCluster` ∞ → 1 | `maxLanguagesFor` gate failed |
+| **Easy familiarity** | Added `obscure` to `FAMILIARITY_POLICY.easy` | `served … which players cannot name` |
+| **Per-word credits** | Rendered only `sources[0]` on the credits page | credits gate failed |
 
 The last two are unusual: they were watched failing **against the shipped
 corpus**, not a planted example. Both were written after reading the generated
@@ -319,14 +456,26 @@ re-splits once the speaker's real name is known. The same read turned up three
 bound morphemes — `секс-`, `dar-`, `сексо-` — prefixes that are never spoken
 alone and make a poor tile.
 
-One break is more interesting than the rest. Relaxing `easy.maxPerCluster` from
-1 to 2 did **not** fail the main "never two same-cluster languages on Easy"
-test — with six clusters and at most four buckets, the greedy picker never needs
-a second pass, so the number was not load-bearing on the shipped corpus. The
-code was right; the test was not proving what it claimed. A second test now runs
-the same policy against a deliberately thin two-cluster corpus, where the
-constraint has to bite. **A mutation that survives is a question, not a
-verdict.**
+One break is more interesting than the rest, and it recurred. Relaxing
+`easy.maxPerCluster` from 1 to 2 did **not** fail the main "never two
+same-cluster languages on Easy" test: with more clusters available than a board
+has buckets, the greedy picker satisfies the board on its first pass and never
+reaches the code the constant governs. The code was right; the test was not
+proving what it claimed.
+
+It is worth being precise about why this came back. A thin-corpus test had
+already been added the first time — but as the roster grew from 14 languages to
+22, that fixture stopped being thin *relative to the board*, and the mutant
+survived again. **A gate can rot into a tautology without anyone touching it.**
+The fixture is now pinned to two clusters against four buckets, so the
+constraint has to bite regardless of how large the real corpus becomes.
+
+Mutating `SIMILARITY_POLICY.hard` surfaced a related problem: `chooseLanguages`
+short-circuits Hard through `CLUSTER_BIAS` and never consults the picker, so
+that entry looked like dead configuration and nothing observed it. It is live in
+`maxLanguagesFor`, which now has a test.
+
+**A mutation that survives is a question, not a verdict.**
 
 ---
 
