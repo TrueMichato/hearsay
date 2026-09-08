@@ -90,6 +90,12 @@ export function Credits({ onBack }: { onBack: () => void }) {
             </li>
           ))}
         </ul>
+        <p className="text-xs text-slate-400">
+          Each recording keeps the licence it carries on Commons. Because the files here are
+          modified, recordings under CC BY-SA 4.0 are redistributed under CC BY-SA 4.0 in turn, as
+          ShareAlike requires. These terms cover the audio; {BRANDING.name}’s own code is licensed
+          separately.
+        </p>
       </section>
 
       {groups.map(({ language, clips, speakers }) => (

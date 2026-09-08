@@ -56,11 +56,23 @@ npm run dev          # http://localhost:5173
 
 Three difficulties:
 
-| Mode | Buckets | What you are told |
-| --- | --- | --- |
-| Easy | 3–4, labelled | The language names |
-| Medium | 3–4, unlabelled | Nothing — just separate them |
-| Hard | none | Not even how many languages there are (2–5) |
+| Mode | Buckets | What you are told | Which languages |
+| --- | --- | --- | --- |
+| Easy | 3–4, labelled | The language names | All from **different** similarity groups |
+| Medium | 3–4, unlabelled | Nothing — just separate them | At most **one** confusable pair |
+| Hard | none | Not even how many languages there are (2–5) | Deliberately **one tight cluster**, 75% of the time |
+
+**Difficulty controls the languages, not just the scaffolding.** An earlier
+version varied only the buckets — whether they existed and whether they were
+labelled — and drew languages the same way at every level. An Easy round duly
+dealt Spanish / Portuguese / Catalan / Italian: the four hardest languages in
+the corpus to tell apart, served with training wheels. Labelled buckets do not
+make an impossible task easy. Each language therefore carries a **similarity
+group** in `scripts/content.config.ts` (`romance`, `slavic`, `east-asian`,
+`germanic`, `turkic`, `basque`), and `SIMILARITY_POLICY` in `src/game/board.ts`
+says how much confusability each difficulty may serve. Because the rule is
+written against that metadata rather than a hardcoded list of language triples,
+adding languages keeps it correct.
 
 **Interaction is tap-to-select, then tap a group.** Deliberately *not* HTML5
 drag-and-drop, which behaves badly on touch screens and is close to impossible
@@ -80,6 +92,28 @@ the clue shop sells a tile's spelling, its romanisation, its language, or a
 colour-coding that groups tiles without naming the languages. Clues cost coins,
 coins come from good rounds, so a clue is a real trade.
 
+### Why nothing in the browser spells out the answer
+
+Clips used to be called `ita-0013` and live at `/audio/ita/ita-0013.opus`. The
+id went into the DOM as a test hook and the path went into the network tab, so
+anyone with developer tools open could read every answer before a note played.
+That is worse than spoiling one round: the clue shop sells information the
+browser was giving away, so the whole in-game economy was priced against
+nothing.
+
+Every clip now has an **opaque id** — the first 12 hex characters of
+`sha256(language ␀ word ␀ speaker)` — and audio is stored flat at
+`/audio/<id>.opus` with no language in the path. The id is *derived from
+content*, not random, which matters twice over: re-running the pipeline
+reproduces exactly the same filenames, so the corpus does not churn in git, and
+IndexedDB keys survive a regeneration.
+
+This is not cryptography. The manifest still maps ids to languages, because the
+app needs it, and a determined player can read it. The goal is that nothing in
+the DOM, the URL bar or the network tab *casually* announces the answer. The
+manifest is also sorted by id rather than by language, so its natural order
+leaks nothing either.
+
 ---
 
 ## Where the audio comes from
@@ -91,11 +125,16 @@ Browser speech synthesis was rejected deliberately: the available voices differ
 by device and operating system, so two players would hear materially different
 games and no score or statistic would be comparable.
 
-**Licences vary per file.** The current corpus is CC0 ×201, CC BY-SA 4.0 ×109
-and CC BY 4.0 ×90. CC BY and CC BY-SA both *require* naming the author and
+**Licences vary per file.** The current corpus is CC0 ×285, CC BY-SA 4.0 ×199
+and CC BY 4.0 ×76. CC BY and CC BY-SA both *require* naming the author and
 linking the licence, so per-clip licence, speaker and source URL are captured in
 the manifest and rendered on the in-app credits page. That page is a legal
-obligation, not decoration.
+obligation, not decoration. Because the repository is public, the audio is also
+redistributed independently of the running app, so the pipeline additionally
+emits [`ATTRIBUTION.md`](./ATTRIBUTION.md) — the same per-clip credits in a form
+that travels with the files. The clips are modified (trimmed,
+loudness-normalised, metadata-stripped, re-encoded to Opus), so the CC BY-SA
+ones are redistributed under CC BY-SA 4.0 as ShareAlike requires.
 
 ### Regenerating the corpus
 
@@ -106,6 +145,12 @@ npm run content -- rus pol # just these two
 
 Scaling to more languages is a change to `scripts/content.config.ts` and nothing
 else. Recording counts for the candidate languages are noted there in comments.
+That claim has now been exercised rather than asserted: the corpus grew from ten
+languages to **fourteen** (560 clips, 94 distinct speakers, 2.6 MB) by editing
+that file alone. The four additions — German, Swedish, Turkish, Basque — were
+not decoration. Easy takes one language per similarity group, so with only three
+groups a four-bucket Easy board was arithmetically impossible; the additions
+brought the corpus to six groups.
 
 Requires `ffmpeg`; the pipeline falls back to the `ffmpeg-static` npm binary and
 fails with instructions if neither is available.
@@ -120,10 +165,11 @@ filters can be audited instead of trusted:
 | Rejected | Why |
 | --- | --- |
 | Multi-word entries | The game is one word per tile |
+| Leading or trailing hyphen | A bound morpheme (`секс-`, `dar-`) — a prefix, not a word |
 | Digits, stray punctuation | Not a spoken word |
 | Wrong script for the language | Mis-filed upload |
 | Latin letters in a non-Latin language | Romanised entry or loanword |
-| Capitalised words (Latin/Cyrillic only) | Proper nouns. Keyed off script, because German capitalises every noun |
+| Capitalised words (Latin/Cyrillic only) | Proper nouns. In German this also discards every ordinary noun — kept anyway, see below |
 | ALL CAPS | Acronyms |
 | **Any katakana, in Japanese** | Katakana *is* the loanword script. Cost 187 rejections and removed the オタマトーン class wholesale |
 | Too short / too long | Bounds are script-aware: Latin and Cyrillic 3–14, Japanese 1 (if it contains kanji) to 6, Hangul 2–6 |
@@ -139,6 +185,14 @@ Two subtleties worth knowing:
 - **Speakers are round-robined, not taken in order.** Otherwise a language
   becomes one contributor's voice and the player learns that person rather than
   the language.
+- **German pays a real price for the proper-noun filter, and keeps it anyway.**
+  German capitalises *every* noun, so the capitalisation rule throws away German
+  nouns wholesale — 3,740 rejections, the highest of any language. It stays,
+  because case is the only dictionary-free signal for a proper noun, and a board
+  of names is far worse than a board without nouns: names travel between
+  languages, so "Berlin" is no evidence of German at all. With 26,112 recordings
+  to draw on, German still filled its full 40 words from verbs, adjectives and
+  adverbs. The cost was affordable; the check was worth keeping.
 
 ### A sampling trap worth knowing about
 
@@ -150,11 +204,11 @@ single upload session can dominate a language.
 
 ### Why the audio is committed
 
-The source WAVs total 34 MB. Transcoded to Opus the whole corpus is **1.5 MB — a
-23× reduction**, smaller than a single photograph. That is cheap enough to
-commit, and committing it buys two things worth more than the bytes: genuine
+The source WAVs total 48 MB. Transcoded to Opus the whole corpus is **2.6 MB —
+an 18× reduction**, smaller than a couple of photographs. That is cheap enough
+to commit, and committing it buys two things worth more than the bytes: genuine
 offline-first play, and a deterministic corpus, so every player gets the same
-game. Runtime fetching with Cache API storage would have saved 1.5 MB in the
+game. Runtime fetching with Cache API storage would have saved 2.6 MB in the
 repository and cost both.
 
 Audio is also **loudness-normalised**. That is a fairness measure rather than
@@ -239,6 +293,37 @@ broken at its real call site, observed failing, and restored:
 | Audio playback | Pointed tiles at a non-existent file | `data-played` stayed `false` |
 | Offline | Dropped `opus` from the precache globs | precache fell 412 → 12 entries, offline round failed |
 | Mobile tap targets | Forced the board to 8 columns | `tap target width … Received: 36.875` |
+| **Tile DOM leak** | Added `data-language={tile.language}` to `Tile.tsx` | `tile-f6fdf85d3e54 leaks "ces"` (4 tests) |
+| **Audio URL leak** | Restored `audio/${clip.language}/…` in `toClipTile` | `audio URL leaks "cat": /audio/cat/d689bb2b107c.opus` |
+| **Easy similarity ceiling** | `easy.maxPerCluster` 1 → 2 | `expected 2 to be 1` |
+| **Medium pair limit** | `medium.clustersAtMax` 1 → 2 | `expected 2 to be 1` |
+| **The reported bug itself** | Routed Easy/Medium back through the Hard draw | 3 similarity tests failed |
+| **Hard cluster bias** | `CLUSTER_BIAS` 0.75 → 0 | `expected 0.033 to be greater than 0.5` |
+| **Manifest ordering** | Re-sorted clips by language | `expected 0.025 to be greater than 0.7` |
+| **Orphan audio** | Created a stale `public/audio/ita/ita-0001.opus` | `audio/ita/ is a stale per-language directory` |
+| **Non-opaque id** | Set one clip id back to `rus-0001` | `rus-0001 is not an opaque id` |
+| **Mis-split filename** | Made `refineWord` ignore the authoritative speaker | `expected 'walker-epíteto' to be 'epíteto'` |
+| **Bound morpheme** | Removed the leading/trailing-hyphen check | `expected { ok: true } to deeply equal { reason: 'bound-morpheme' }` |
+
+The last two are unusual: they were watched failing **against the shipped
+corpus**, not a planted example. Both were written after reading the generated
+`ATTRIBUTION.md` and noticing it credited a real contributor,
+`Wikipedian-walker`, next to the word "walker-epíteto" — which is not a word.
+The Lingua Libre filename `LL-Q1321 (spa)-Wikipedian-walker-epíteto.wav` is
+genuinely ambiguous, and the parser split it at the first hyphen. Commons
+resolves the ambiguity in each file's `Artist` metadata, so the pipeline now
+re-splits once the speaker's real name is known. The same read turned up three
+bound morphemes — `секс-`, `dar-`, `сексо-` — prefixes that are never spoken
+alone and make a poor tile.
+
+One break is more interesting than the rest. Relaxing `easy.maxPerCluster` from
+1 to 2 did **not** fail the main "never two same-cluster languages on Easy"
+test — with six clusters and at most four buckets, the greedy picker never needs
+a second pass, so the number was not load-bearing on the shipped corpus. The
+code was right; the test was not proving what it claimed. A second test now runs
+the same policy against a deliberately thin two-cluster corpus, where the
+constraint has to bite. **A mutation that survives is a question, not a
+verdict.**
 
 ---
 
