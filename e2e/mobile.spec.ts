@@ -16,9 +16,7 @@ test.describe('mobile layout', () => {
   test.use({ viewport: { width: 375, height: 667 }, hasTouch: true, isMobile: true });
 
   test('all 16 tiles fit a 375px viewport with comfortable tap targets', async ({ page }) => {
-    const seed = 'e2e-mobile';
-    const round = generateRound(manifest, { difficulty: 'easy', seed });
-    await page.goto(`/#/play/easy/${seed}`);
+    await page.goto('/#/play/easy/e2e-mobile');
     await expect(page.getByRole('grid')).toBeVisible();
 
     const tiles = page.locator('[data-tile-index]');

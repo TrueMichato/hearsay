@@ -28,3 +28,4 @@ dist-ssr
 .impeccable/
 test-results/
 playwright-report/
+dev-dist/

@@ -110,7 +110,7 @@ export class HearsayDatabase extends Dexie {
   constructor() {
     // The database name is derived from branding so a rename does not orphan
     // the player's data under an old name by accident — but note that renaming
-    // the product *will* start a fresh database. See docs/architecture.md.
+    // the product *will* start a fresh database. See the README ("Renaming").
     super(`${BRAND_SLUG}-db`);
 
     // --- v1: initial schema -------------------------------------------------
