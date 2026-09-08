@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "content": "tsx scripts/fetch-content.ts",
+    "content:attribution": "tsx scripts/fetch-content.ts --attribution-only",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit",
     "e2e": "playwright test",

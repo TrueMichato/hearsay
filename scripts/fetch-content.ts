@@ -487,14 +487,27 @@ async function processLanguage(lang: LanguageMeta): Promise<ClipMeta[]> {
  * The credits page inside the app covers the *running game*, but publishing
  * this repository redistributes the audio in its own right, and CC BY / CC BY-SA
  * attach to the files wherever they travel. Someone browsing `public/audio/`
- * on GitHub sees 560 anonymous `.opus` files; this is what tells them whose
- * voices those are and under what terms.
+ * on GitHub sees a directory of anonymous `.opus` files; this is what tells them
+ * whose voices those are and under what terms.
+ *
+ * The unit of attribution is a *source recording*, never a tile. A tile is
+ * assembled from `WORDS_PER_TILE` separate Commons files, so listing one row per
+ * tile would leave two files in three with no author credit and no link — and
+ * would additionally misstate the licence of the two it omitted, since a tile is
+ * filed under the most restrictive licence among its parts. Every source gets
+ * its own row.
  *
  * Generated rather than hand-written, so it cannot drift from the corpus.
  */
-async function writeAttribution(manifest: ContentManifest): Promise<void> {
+export async function writeAttribution(manifest: ContentManifest): Promise<void> {
   const tally = new Map<string, number>();
-  for (const clip of manifest.clips) tally.set(clip.license, (tally.get(clip.license) ?? 0) + 1);
+  let sourceCount = 0;
+  for (const clip of manifest.clips) {
+    for (const source of clip.sources) {
+      tally.set(source.license, (tally.get(source.license) ?? 0) + 1);
+      sourceCount += 1;
+    }
+  }
 
   const lines: string[] = [
     '# Audio attribution',
@@ -509,12 +522,18 @@ async function writeAttribution(manifest: ContentManifest): Promise<void> {
     'loudness-normalised to a common target, stripped of metadata and re-encoded from',
     '48 kHz WAV to Opus. The spoken words themselves are unaltered.',
     '',
-    'Each recording keeps the licence it carries on Commons, listed per file below.',
+    `Each \`.opus\` file in \`public/audio/\` is an utterance assembled from`,
+    `${WORDS_PER_TILE} separate Commons recordings of ${WORDS_PER_TILE} words by the same speaker, joined by a short`,
+    `pause. ${sourceCount} source recordings make up ${manifest.clips.length} files. Every source is listed`,
+    'individually below, because each carries its own author and its own licence.',
+    '',
+    'Each recording keeps the licence it carries on Commons, listed per source below.',
     'Recordings under **CC BY-SA 4.0** are redistributed here under CC BY-SA 4.0, as',
     'ShareAlike requires. Recordings under CC BY 4.0 and CC0 keep their own terms.',
-    'These licences cover the audio only; the source code is licensed separately.',
+    'An assembled file as a whole is offered under the most restrictive licence among',
+    'its sources. These licences cover the audio only; the code is licensed separately.',
     '',
-    '| Licence | Recordings |',
+    '| Licence | Source recordings |',
     '| --- | --- |',
     ...[...tally.entries()].sort((a, b) => b[1] - a[1]).map(([l, n]) => `| ${l} | ${n} |`),
     '',
@@ -526,14 +545,24 @@ async function writeAttribution(manifest: ContentManifest): Promise<void> {
   for (const language of manifest.languages) {
     const clips = manifest.clips.filter((c) => c.language === language.id);
     if (clips.length === 0) continue;
-    const speakers = [...new Set(clips.map((c) => c.speaker))].sort();
-    lines.push(`## ${language.name}`, '', `${clips.length} recordings by ${speakers.length} speakers.`, '');
+    const sources = clips.flatMap((c) => c.sources);
+    const speakers = [...new Set(sources.map((s) => s.speaker))].sort();
+    lines.push(
+      `## ${language.name}`,
+      '',
+      `${sources.length} recordings by ${speakers.length} speakers, assembled into ${clips.length} files.`,
+      '',
+    );
     lines.push('| File | Word | Speaker | Licence | Source |', '| --- | --- | --- | --- | --- |');
     for (const clip of [...clips].sort((a, b) => a.id.localeCompare(b.id))) {
-      const licence = clip.licenseUrl ? `[${clip.license}](${clip.licenseUrl})` : clip.license;
-      lines.push(
-        `| \`${clip.id}.opus\` | ${clip.word} | ${clip.speaker} | ${licence} | [Commons](${clip.sourceUrl}) |`,
-      );
+      for (const source of clip.sources) {
+        const licence = source.licenseUrl
+          ? `[${source.license}](${source.licenseUrl})`
+          : source.license;
+        lines.push(
+          `| \`${clip.id}.opus\` | ${source.word} | ${source.speaker} | ${licence} | [Commons](${source.sourceUrl}) |`,
+        );
+      }
     }
     lines.push('');
   }
@@ -649,7 +678,19 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(`\nFAILED: ${(err as Error).message}`);
-  process.exit(1);
-});
+/**
+ * `--attribution-only` re-emits ATTRIBUTION.md from the committed manifest
+ * without touching the corpus. Attribution is a text projection of the manifest,
+ * so a wording or grouping fix should not require a fifty-minute content run —
+ * and making that cheap is what keeps the generated file from being edited by
+ * hand, which is how it would drift out of agreement with the audio.
+ */
+if (process.argv.includes('--attribution-only')) {
+  const existing = JSON.parse(await readFile(MANIFEST_OUT, 'utf8')) as ContentManifest;
+  await writeAttribution(existing);
+} else {
+  main().catch((err) => {
+    console.error(`\nFAILED: ${(err as Error).message}`);
+    process.exit(1);
+  });
+}

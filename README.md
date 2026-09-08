@@ -129,15 +129,24 @@ by device and operating system, so two players would hear materially different
 games and no score or statistic would be comparable.
 
 **Licences vary per file.** A tile is assembled from three source recordings,
-so licences are counted per *source*: CC0 ×633, CC BY-SA 4.0 ×531, CC BY 4.0
-×153 and CC BY-SA 3.0 ×3, across 1,320 source recordings. A tile inherits the
-most restrictive licence of its constituents. CC BY and CC BY-SA both *require* naming the author and
-linking the licence, so per-clip licence, speaker and source URL are captured in
-the manifest and rendered on the in-app credits page. That page is a legal
-obligation, not decoration. Because the repository is public, the audio is also
-redistributed independently of the running app, so the pipeline additionally
-emits [`ATTRIBUTION.md`](./ATTRIBUTION.md) — the same per-clip credits in a form
-that travels with the files. The clips are modified (trimmed,
+so licences are counted per *source*: CC0 ×636, CC BY-SA 4.0 ×531, CC BY 4.0
+×150 and CC BY-SA 3.0 ×3, across 1,320 source recordings. A tile inherits the
+most restrictive licence of its constituents. CC BY and CC BY-SA both *require*
+naming the author and linking the licence, so per-*source* licence, speaker and
+URL are captured in the manifest and rendered on the in-app credits page. That
+page is a legal obligation, not decoration. Because the repository is public,
+the audio is also redistributed independently of the running app, so the
+pipeline additionally emits [`ATTRIBUTION.md`](./ATTRIBUTION.md) — the same
+per-source credits in a form that travels with the files.
+
+The unit of attribution is the source recording, never the tile, and getting
+that wrong is easy to miss. When a tile became an utterance of three recordings,
+both the credits page and `ATTRIBUTION.md` carried on emitting one entry per
+tile: 440 links where 1,320 were owed, dropping two authors in three and
+misstating the licence of the two it dropped. Nothing looked broken — the pages
+rendered, the links worked, the licence tally added up to a plausible number.
+Only counting entries against the manifest found it, which is why both are now
+gated on exactly that count. The clips are modified (trimmed,
 loudness-normalised, metadata-stripped, re-encoded to Opus), so the CC BY-SA
 ones are redistributed under CC BY-SA 4.0 as ShareAlike requires.
 

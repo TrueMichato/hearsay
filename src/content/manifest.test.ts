@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import manifest from './manifest.json';
@@ -280,6 +280,35 @@ describe('content manifest', () => {
         ).toBe(source.word.normalize('NFC'));
       }
     }
+  });
+
+  /**
+   * ATTRIBUTION.md is the only credit an auditor sees when browsing the public
+   * repository rather than running the game, and CC BY / CC BY-SA obligations
+   * attach to the files wherever they travel.
+   *
+   * The failure this guards against is quiet: when a tile became an utterance of
+   * three recordings, the generator kept emitting one row per tile, so it linked
+   * 440 of 1,320 source files and silently dropped two authors in three. Nothing
+   * looked broken — the file was still present, still generated, still full of
+   * valid links. Only counting them against the manifest catches it.
+   */
+  it('credits every source recording in ATTRIBUTION.md, not merely every file', () => {
+    const attribution = readFileSync(join(process.cwd(), 'ATTRIBUTION.md'), 'utf8');
+    const sources = content.clips.flatMap((c) => c.sources);
+
+    for (const source of sources) {
+      expect(
+        attribution.includes(source.sourceUrl),
+        `ATTRIBUTION.md omits ${source.speaker}'s recording of "${source.word}" (${source.license})`,
+      ).toBe(true);
+    }
+
+    const linked = attribution.match(/commons\.wikimedia\.org\/wiki\/File:/g) ?? [];
+    expect(
+      linked.length,
+      'every source recording needs its own row; a per-tile row credits one author in three',
+    ).toBe(sources.length);
   });
 
   it('has no bound morphemes, which are prefixes rather than words', () => {
