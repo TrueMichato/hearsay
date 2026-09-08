@@ -48,7 +48,7 @@ export function TunerStrip({
   const idle = station === null;
 
   const status = idle
-    ? 'Press a station to hear it — listening files nothing'
+    ? 'Press a station to hear it. Listening never files anything.'
     : [
         heard ? 'heard' : 'not heard yet',
         filedUnder ? `filed under ${filedUnder}` : 'not filed',
@@ -92,7 +92,10 @@ export function TunerStrip({
       {/* The status owns a full-width line of its own. Sharing the row with the
           buttons truncated it to "Press a station to he…", which turned the one
           sentence explaining the whole interaction into an ellipsis. */}
-      <p aria-live="polite" className="legend relative z-10 mt-1.5 normal-case">
+      <p
+        aria-live="polite"
+        className="relative z-10 mt-1.5 text-[11px] leading-snug tracking-[0.02em] text-[color:var(--color-legend)]"
+      >
         {status}
       </p>
 

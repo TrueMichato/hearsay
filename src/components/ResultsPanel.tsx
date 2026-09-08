@@ -178,17 +178,17 @@ function SignalGauge({ accuracy, negative }: { accuracy: number; negative: boole
   const color = negative ? 'var(--color-fault)' : 'var(--color-signal)';
 
   return (
-    <div aria-hidden="true" className="engrave relative mx-auto mt-2 h-[86px] w-full rounded-lg">
-      <svg viewBox="0 0 200 96" className="h-full w-full">
+    <div aria-hidden="true" className="engrave relative mx-auto mt-2 h-[104px] w-full rounded-lg">
+      <svg viewBox="0 0 200 104" className="h-full w-full">
         {/* The scale: ticks across the arc, taller every fifth. */}
         {Array.from({ length: 21 }, (_, i) => {
           const t = i / 20;
           const a = (-62 + t * 124) * (Math.PI / 180);
-          const inner = i % 5 === 0 ? 56 : 62;
+          const inner = i % 5 === 0 ? 62 : 70;
           const cx = 100 + Math.sin(a) * inner;
-          const cy = 88 - Math.cos(a) * inner;
-          const ox = 100 + Math.sin(a) * 68;
-          const oy = 88 - Math.cos(a) * 68;
+          const cy = 96 - Math.cos(a) * inner;
+          const ox = 100 + Math.sin(a) * 78;
+          const oy = 96 - Math.cos(a) * 78;
           return (
             <line
               key={i}
@@ -196,7 +196,10 @@ function SignalGauge({ accuracy, negative }: { accuracy: number; negative: boole
               y1={cy}
               x2={ox}
               y2={oy}
-              stroke={t > 0.72 ? 'var(--color-ember)' : 'var(--color-legend-dim)'}
+              // The top of the scale is where you want the needle, so it is lit in the
+              // same green the round uses for correct answers. Ember here would read
+              // as an overload warning for what is in fact the best possible result.
+              stroke={t > 0.75 ? 'var(--color-phosphor)' : 'var(--color-legend-dim)'}
               strokeWidth={i % 5 === 0 ? 1.6 : 0.9}
               strokeLinecap="round"
             />
@@ -205,7 +208,7 @@ function SignalGauge({ accuracy, negative }: { accuracy: number; negative: boole
 
         <text
           x="100"
-          y="46"
+          y="48"
           textAnchor="middle"
           className="legend"
           fill="var(--color-legend-dim)"
@@ -218,16 +221,16 @@ function SignalGauge({ accuracy, negative }: { accuracy: number; negative: boole
           className="anim-needle"
           style={
             {
-              transformOrigin: '100px 88px',
+              transformOrigin: '100px 96px',
               '--needle-from': '-62deg',
               '--needle-to': `${angle}deg`,
             } as React.CSSProperties
           }
         >
-          <line x1="100" y1="88" x2="100" y2="24" stroke={color} strokeWidth="2" strokeLinecap="round" />
+          <line x1="100" y1="96" x2="100" y2="20" stroke={color} strokeWidth="2.4" strokeLinecap="round" />
         </g>
-        <circle cx="100" cy="88" r="5" fill="var(--color-hairline)" />
-        <circle cx="100" cy="88" r="2" fill={color} />
+        <circle cx="100" cy="96" r="6" fill="var(--color-hairline)" />
+        <circle cx="100" cy="96" r="2.4" fill={color} />
       </svg>
     </div>
   );

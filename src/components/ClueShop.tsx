@@ -113,9 +113,7 @@ export function ClueShop({
                     aria-label={`${clue.name}, ${clue.cost} coins. ${clue.description} ${owned ?? blocked ?? ''}`}
                     className="well flex w-full items-start gap-3 rounded-lg p-3 text-left transition-shadow enabled:hover:shadow-[inset_0_0_0_1.5px_var(--color-signal)] disabled:opacity-45"
                   >
-                    <span aria-hidden="true" className="text-xl leading-none">
-                      {clue.icon}
-                    </span>
+                    <ClueGlyph id={clue.id} />
                     <span className="min-w-0 flex-1">
                       <span className="flex items-baseline justify-between gap-2">
                         <span className="nameplate text-base text-[color:var(--color-ink)]">
@@ -151,4 +149,72 @@ export function ClueShop({
       </div>
     </div>
   );
+}
+
+/**
+ * Engraved instrument glyphs, one per clue.
+ *
+ * These replace the emoji this file used to render. Emoji are drawn by the
+ * operating system in full colour — a blue letter block and a red target sat
+ * inside an amber panel and read as stickers on a radio. These are stroked in
+ * the panel's own colours instead, so they look etched into the metal.
+ *
+ * The colour-coding clue is the one deliberate exception: it sells a feature
+ * that *is* colour, so its three dots are allowed to be three different hues.
+ */
+function ClueGlyph({ id }: { id: ClueId }) {
+  const common = {
+    width: 22,
+    height: 22,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'var(--color-signal)',
+    strokeWidth: 1.5,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    'aria-hidden': true,
+    className: 'mt-0.5 shrink-0',
+  };
+
+  switch (id) {
+    case 'revealWord':
+      return (
+        <svg {...common}>
+          <path d="M3 16c2-4 3 2 5-2s3 3 5-1 3 2 5-2" />
+          <path d="M4 20h16" strokeOpacity="0.4" />
+        </svg>
+      );
+    case 'revealRomanization':
+      return (
+        <svg {...common}>
+          <path d="M4 19 11 5l7 14" />
+          <path d="M6.6 14h8.8" />
+          <path d="M3 22h18" strokeOpacity="0.4" />
+        </svg>
+      );
+    case 'revealTileLanguage':
+      return (
+        <svg {...common}>
+          <circle cx="12" cy="12" r="7.5" />
+          <circle cx="12" cy="12" r="2.5" />
+          <path d="M12 1.5v3M12 19.5v3M1.5 12h3M19.5 12h3" />
+        </svg>
+      );
+    case 'colorCode':
+      return (
+        <svg {...common} stroke="none">
+          <circle cx="7" cy="9" r="3.2" fill="var(--color-signal)" />
+          <circle cx="16" cy="9" r="3.2" fill="var(--color-phosphor)" />
+          <circle cx="11.5" cy="16.5" r="3.2" fill="var(--color-ember)" />
+        </svg>
+      );
+    case 'revealLanguageCount':
+      return (
+        <svg {...common}>
+          <path d="M5 5v14M10 5v14M15 5v14" />
+          <path d="M3 8h18" strokeOpacity="0.45" />
+          <path d="M19 5 17 19" />
+        </svg>
+      );
+  }
 }

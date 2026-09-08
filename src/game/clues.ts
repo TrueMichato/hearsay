@@ -35,46 +35,40 @@ export interface ClueDefinition {
   scope: ClueScope;
   /** Difficulties where this clue makes sense. */
   availableIn: Round['difficulty'][];
-  /** Emoji used as the shop icon; keeps the prototype asset-free. */
-  icon: string;
 }
 
 export const CLUES: ClueDefinition[] = [
   {
     id: 'revealWord',
     name: 'Show the writing',
-    description: 'Reveal one tile’s word in its own script.',
+    description: 'Reveal one station’s word in its own script.',
     cost: 12,
     scope: 'tile',
     availableIn: ['easy', 'medium', 'hard'],
-    icon: '✍️',
   },
   {
     id: 'revealRomanization',
     name: 'Show the romanisation',
-    description: 'Reveal one tile’s word in the Latin alphabet, where one exists.',
+    description: 'Reveal one station’s word in the Latin alphabet, where one exists.',
     cost: 18,
     scope: 'tile',
     availableIn: ['easy', 'medium', 'hard'],
-    icon: '🔤',
   },
   {
     id: 'revealTileLanguage',
     name: 'Name that language',
-    description: 'Reveal which language one tile actually is. The expensive way out.',
+    description: 'Reveal which language one station actually is. The expensive way out.',
     cost: 45,
     scope: 'tile',
     availableIn: ['easy', 'medium'],
-    icon: '🎯',
   },
   {
     id: 'colorCode',
     name: 'Colour-code the board',
-    description: 'Tiles sharing a language get a matching colour. Which language is still up to you.',
+    description: 'Stations sharing a language get a matching colour. Which language is still up to you.',
     cost: 80,
     scope: 'board',
     availableIn: ['easy', 'medium', 'hard'],
-    icon: '🎨',
   },
   {
     id: 'revealLanguageCount',
@@ -83,7 +77,6 @@ export const CLUES: ClueDefinition[] = [
     cost: 30,
     scope: 'board',
     availableIn: ['hard'],
-    icon: '🔢',
   },
 ];
 

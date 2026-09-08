@@ -113,7 +113,10 @@ export function GroupTray({
           <button
             type="button"
             onClick={onAddGroup}
-            className="legend flex min-h-[52px] items-center justify-center rounded-lg border border-dashed border-[color:var(--color-hairline)] px-3 py-2 text-[color:var(--color-legend)] transition-colors hover:border-[color:var(--color-signal)] hover:text-[color:var(--color-signal)]"
+            // Adding a group is secondary to filing into one, so it stays a
+            // quiet dashed outline rather than competing with the real groups.
+            style={{ borderColor: 'var(--color-hairline)' }}
+            className="legend flex min-h-[52px] items-center justify-center rounded-lg border border-dashed px-3 py-2 text-[color:var(--color-legend-dim)] transition-colors hover:text-[color:var(--color-signal)]"
           >
             + New group
           </button>
@@ -125,8 +128,9 @@ export function GroupTray({
           type="button"
           onClick={onUnassignTarget}
           data-testid="unfile"
-          className="legend w-full rounded px-2 py-1.5 text-left text-[color:var(--color-legend)] underline-offset-4 hover:underline"
+          className="legend inline-flex items-center gap-1.5 rounded-full border border-[color:var(--color-hairline)] px-3 py-1.5 text-[color:var(--color-legend)] transition-colors hover:border-[color:var(--color-ember)] hover:text-[color:var(--color-ember)]"
         >
+          <span aria-hidden="true">↩</span>
           Take {targetCount > 1 ? `these ${targetCount}` : 'this one'} back out
         </button>
       )}

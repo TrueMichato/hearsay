@@ -113,11 +113,11 @@ test('the manual advances on what the player actually does', async ({ page }) =>
   await expect(coach).toContainText('Press one to hear it');
 
   await page.getByTestId(`tile-${round.tiles[0].id}`).click();
-  await expect(coach).toContainText('Notice nothing was filed');
+  await expect(coach).toContainText('Nothing got filed');
 
   await page.getByTestId(`tile-${round.tiles[1].id}`).click();
   await page.getByTestId(`tile-${round.tiles[2].id}`).click();
-  await expect(coach).toContainText('press it in the bank below');
+  await expect(coach).toContainText('in the bank below');
 
   await page.getByTestId(`bucket-${round.buckets[0].id}`).click();
   await expect(coach).toContainText('Two at once');
