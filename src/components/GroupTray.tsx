@@ -3,96 +3,104 @@ import type { Bucket } from '../game/types';
 export interface GroupTrayProps {
   buckets: Bucket[];
   counts: Record<string, number>;
-  /** How many tiles are selected and waiting to be placed. */
-  selectedCount: number;
+  /**
+   * How many tiles the next press will file. 0 disables the bank, 1 is the
+   * tuned station, more than 1 means held stations.
+   */
+  targetCount: number;
+  /** True when the target is the held set rather than the tuned station. */
+  targetIsHeld: boolean;
   /** Hard mode lets the player add groups; labelled modes do not. */
   canAddGroup: boolean;
   onAssign: (bucketId: string) => void;
   onAddGroup: () => void;
-  onClearSelection: () => void;
-  onUnassignSelected: () => void;
+  onUnassignTarget: () => void;
+  /** True when the target is already filed, so unfiling is meaningful. */
+  canUnassign: boolean;
 }
 
 /**
- * The row of groups a player drops tiles into.
+ * The filing bank: the row of groups a station gets filed into.
+ *
+ * These are the only controls that change what is filed. Pressing one takes
+ * whatever the tuner is pointed at — the tuned station, or every held station —
+ * and commits it. That is the whole of the game's commitment surface, and it is
+ * physically separate from the board so that comparing clips can never file
+ * anything by accident.
  *
  * On Easy these are labelled with real language names; on Medium they are
  * anonymous ("Group A"); on Hard they do not exist until the player creates
- * them. All three cases are the same component, because the interaction — select
- * tiles, then press a group — is identical.
+ * them. All three are this same component, because the gesture is identical.
  */
 export function GroupTray({
   buckets,
   counts,
-  selectedCount,
+  targetCount,
+  targetIsHeld,
   canAddGroup,
   onAssign,
   onAddGroup,
-  onClearSelection,
-  onUnassignSelected,
+  onUnassignTarget,
+  canUnassign,
 }: GroupTrayProps) {
-  const hasSelection = selectedCount > 0;
+  const armed = targetCount > 0;
 
   return (
-    <section aria-label="Groups" className="space-y-2">
-      <div className="flex items-center justify-between text-xs text-slate-400">
-        <span aria-live="polite">
-          {hasSelection
-            ? `${selectedCount} tile${selectedCount === 1 ? '' : 's'} selected — choose a group`
-            : 'Tap tiles to listen and select'}
+    <section aria-label="Filing bank" className="space-y-1.5">
+      <div className="flex items-baseline justify-between gap-2">
+        <h2 className="legend">File under</h2>
+        <span aria-live="polite" className="legend text-[color:var(--color-legend-dim)]">
+          {!armed
+            ? 'nothing tuned'
+            : targetIsHeld
+              ? `${targetCount} held stations`
+              : 'the tuned station'}
         </span>
-        {hasSelection && (
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={onUnassignSelected}
-              className="rounded-lg px-2 py-1 text-slate-300 underline-offset-2 hover:underline"
-            >
-              Unassign
-            </button>
-            <button
-              type="button"
-              onClick={onClearSelection}
-              className="rounded-lg px-2 py-1 text-slate-300 underline-offset-2 hover:underline"
-            >
-              Clear
-            </button>
-          </div>
-        )}
       </div>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-2">
         {buckets.map((bucket, index) => (
           <button
             key={bucket.id}
             type="button"
             onClick={() => onAssign(bucket.id)}
-            disabled={!hasSelection}
+            disabled={!armed}
             data-testid={`bucket-${bucket.id}`}
-            aria-label={`${bucket.label}. ${counts[bucket.id] ?? 0} tiles. ${
-              hasSelection ? `Press to move ${selectedCount} selected here.` : 'Select tiles first.'
+            aria-label={`${bucket.label}. ${counts[bucket.id] ?? 0} stations filed here. ${
+              armed ? `Press to file ${targetCount}.` : 'Tune a station first.'
             }`}
             className={[
-              'flex min-h-[56px] items-center justify-between gap-2 rounded-xl border-2 px-3 py-2 text-left transition-colors',
-              hasSelection
-                ? 'border-sky-500 bg-sky-950/60 hover:bg-sky-900'
-                : 'border-slate-700 bg-slate-800/60',
-              'disabled:cursor-not-allowed disabled:opacity-60',
+              'panel group relative flex min-h-[52px] items-center gap-2 overflow-hidden rounded-lg px-3 py-2 text-left',
+              'transition-[box-shadow,transform] duration-150',
+              armed
+                ? 'enabled:active:translate-y-px enabled:hover:shadow-[inset_0_0_0_1.5px_var(--color-signal),0_4px_14px_-6px_rgb(255_167_36/0.6)]'
+                : 'opacity-45',
             ].join(' ')}
           >
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold">{bucket.label}</span>
-              {/* The number-key accelerator is only worth advertising for the
-                  first five groups, which is also the maximum the game allows. */}
-              {index < 5 && (
-                <span aria-hidden="true" className="text-[10px] text-slate-400">
-                  press {index + 1}
-                </span>
-              )}
+            {/* The number-key accelerator, engraved beside the control like a
+                legend on a real front panel. */}
+            {index < 5 && (
+              <span
+                aria-hidden="true"
+                className="well readout flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-[color:var(--color-legend)]"
+              >
+                {index + 1}
+              </span>
+            )}
+            <span className="min-w-0 flex-1">
+              <span className="nameplate block truncate text-[15px] leading-tight text-[color:var(--color-ink)]">
+                {bucket.label}
+              </span>
             </span>
             <span
               aria-hidden="true"
-              className="shrink-0 rounded-lg bg-slate-900/70 px-2 py-1 text-xs font-bold tabular-nums"
+              className="readout shrink-0 text-base font-bold"
+              style={{
+                color:
+                  (counts[bucket.id] ?? 0) > 0
+                    ? 'var(--color-signal)'
+                    : 'var(--color-legend-dim)',
+              }}
             >
               {counts[bucket.id] ?? 0}
             </span>
@@ -103,12 +111,23 @@ export function GroupTray({
           <button
             type="button"
             onClick={onAddGroup}
-            className="flex min-h-[56px] items-center justify-center rounded-xl border-2 border-dashed border-slate-600 px-3 py-2 text-sm text-slate-300 hover:border-slate-400 hover:text-white"
+            className="legend flex min-h-[52px] items-center justify-center rounded-lg border border-dashed border-[color:var(--color-hairline)] px-3 py-2 text-[color:var(--color-legend)] transition-colors hover:border-[color:var(--color-signal)] hover:text-[color:var(--color-signal)]"
           >
             + New group
           </button>
         )}
       </div>
+
+      {canUnassign && (
+        <button
+          type="button"
+          onClick={onUnassignTarget}
+          data-testid="unfile"
+          className="legend w-full rounded px-2 py-1.5 text-left text-[color:var(--color-legend)] underline-offset-4 hover:underline"
+        >
+          Take {targetCount > 1 ? `these ${targetCount}` : 'this one'} back out
+        </button>
+      )}
     </section>
   );
 }

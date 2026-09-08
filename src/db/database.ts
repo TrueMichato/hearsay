@@ -90,6 +90,12 @@ export interface ProfileRecord {
   bestWinStreak: number;
   lastPlayedDay: string | null;
   createdAt: number;
+  /**
+   * When the player last finished or dismissed the guided round, or `null` if
+   * they have never seen it. Persisted so the manual opens itself exactly once,
+   * and so "reopen the manual" is always available without nagging.
+   */
+  tutorialSeenAt: number | null;
 }
 
 export const PROFILE_ID = 'singleton';
@@ -125,14 +131,32 @@ export class HearsayDatabase extends Dexie {
       profile: 'id',
     });
 
-    // --- Adding v2 later? ---------------------------------------------------
-    // Copy this shape; do NOT edit the block above.
-    //
-    //   this.version(2)
-    //     .stores({ rounds: '++id, roundId, difficulty, playedAt, playedDay, mode' })
-    //     .upgrade((tx) => tx.table('rounds').toCollection().modify((r) => {
-    //       r.mode = 'classic';
-    //     }));
+    // --- v2: the guided first round ----------------------------------------
+    // `tutorialSeenAt` is a plain field, not an index, so the schema strings are
+    // unchanged — Dexie still needs the full shape repeated, and the version
+    // bump is what gives existing players a defined value instead of
+    // `undefined`. A player who has already finished a round has demonstrably
+    // worked the game out, so they are marked as having seen it rather than
+    // being handed a tutorial for something they already do.
+    this.version(2)
+      .stores({
+        rounds: '++id, roundId, difficulty, playedAt, playedDay',
+        confusions: '[actual+guessed], actual, guessed',
+        languageStats: 'language, lastPlayedAt',
+        clueUsage: 'clueId',
+        profile: 'id',
+      })
+      .upgrade((tx) =>
+        tx
+          .table('profile')
+          .toCollection()
+          .modify((p: ProfileRecord) => {
+            p.tutorialSeenAt = p.totalRounds > 0 ? Date.now() : null;
+          }),
+      );
+
+    // --- Adding v3 later? ---------------------------------------------------
+    // Copy the shape above; do NOT edit an existing version block.
   }
 }
 
@@ -160,12 +184,25 @@ export function newProfile(): ProfileRecord {
     bestWinStreak: 0,
     lastPlayedDay: null,
     createdAt: Date.now(),
+    tutorialSeenAt: null,
   };
 }
 
 /** Reads the stored profile, falling back to a fresh one. Never writes. */
 export async function getProfile(): Promise<ProfileRecord> {
   return (await db.profile.get(PROFILE_ID)) ?? newProfile();
+}
+
+/**
+ * Record that the player has been through the manual.
+ *
+ * A normal async write, deliberately never called from inside a `useLiveQuery`:
+ * live queries run in a read-only transaction, so a write there throws and
+ * takes the React tree down with it.
+ */
+export async function markTutorialSeen(at: number = Date.now()): Promise<void> {
+  const profile = await getProfile();
+  await db.profile.put({ ...profile, tutorialSeenAt: at });
 }
 
 export async function setCoins(coins: number): Promise<void> {

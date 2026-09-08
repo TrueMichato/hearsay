@@ -1,10 +1,12 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import manifestJson from '../content/manifest.json';
 import type { ContentManifest } from '../content/types';
 import { Board } from '../components/Board';
 import { GroupTray } from '../components/GroupTray';
 import { ClueShop } from '../components/ClueShop';
 import { ResultsPanel } from '../components/ResultsPanel';
+import { TunerStrip } from '../components/TunerStrip';
+import { Coach, TUTORIAL_STEPS } from '../components/Coach';
 import { generateRound, GROUP_LABELS } from '../game/board';
 import { randomSeed } from '../game/rng';
 import { scoreRound, type RoundResult } from '../game/scoring';
@@ -16,15 +18,22 @@ import {
   type ClueId,
 } from '../game/clues';
 import type { Assignment, Bucket, Difficulty } from '../game/types';
-import { recordRound } from '../db/database';
+import { recordRound, markTutorialSeen } from '../db/database';
 import { useProfile } from '../hooks/useProfile';
 import { useBoardAudio } from '../hooks/useBoardAudio';
+import { useWaveforms } from '../hooks/useWaveforms';
 
 const manifest = manifestJson as ContentManifest;
 
 /** Hard mode starts with two empty groups and allows up to five. */
 const HARD_INITIAL_GROUPS = 2;
 const HARD_MAX_GROUPS = 5;
+
+const DIFFICULTY_LABEL: Record<Difficulty, string> = {
+  easy: 'Easy',
+  medium: 'Medium',
+  hard: 'Hard',
+};
 
 export interface PlayProps {
   difficulty: Difficulty;
@@ -34,8 +43,9 @@ export interface PlayProps {
 export function Play({
   difficulty,
   initialSeed,
+  tutorial = false,
   onExit,
-}: PlayProps & { initialSeed?: string }) {
+}: PlayProps & { initialSeed?: string; tutorial?: boolean }) {
   const [seed, setSeed] = useState(() => initialSeed ?? randomSeed());
 
   // Remounting per seed is what keeps every round-scoped piece of state — the
@@ -46,6 +56,7 @@ export function Play({
       key={seed}
       difficulty={difficulty}
       seed={seed}
+      tutorial={tutorial}
       onExit={onExit}
       onPlayAgain={() => setSeed(randomSeed())}
     />
@@ -55,9 +66,10 @@ export function Play({
 function RoundView({
   difficulty,
   seed,
+  tutorial,
   onExit,
   onPlayAgain,
-}: PlayProps & { seed: string; onPlayAgain: () => void }) {
+}: PlayProps & { seed: string; tutorial: boolean; onPlayAgain: () => void }) {
   const profile = useProfile();
 
   const round = useMemo(
@@ -66,12 +78,22 @@ function RoundView({
   );
 
   const [assignment, setAssignment] = useState<Assignment>({});
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /**
+   * Stations deliberately held back so several can be filed in one press.
+   *
+   * This is the *only* multi-selection in the game, and nothing but the Hold
+   * control writes to it. That is the fix for the original bug: listening used
+   * to write here, so comparing all sixteen clips selected all sixteen.
+   */
+  const [held, setHeld] = useState<Set<string>>(new Set());
+  /** The station the filing bank is pointed at. Null until the player acts. */
+  const [tunedId, setTunedId] = useState<string | null>(null);
   const [clueState, setClueState] = useState(emptyClueState);
   const [shopOpen, setShopOpen] = useState(false);
   const [result, setResult] = useState<RoundResult | null>(null);
   const [announcement, setAnnouncement] = useState('');
   const [startedAt] = useState(() => Date.now());
+  const [step, setStep] = useState(tutorial ? 0 : -1);
   const [hardGroups, setHardGroups] = useState<Bucket[]>(() =>
     difficulty === 'hard'
       ? Array.from({ length: HARD_INITIAL_GROUPS }, (_, i) => ({
@@ -83,6 +105,7 @@ function RoundView({
   );
 
   const audio = useBoardAudio(round.tiles);
+  const peaks = useWaveforms(round.tiles);
 
   // Coins are derived, never mirrored. `clueState.spent` is the round's running
   // tab; once the round is banked, `recordRound` has already folded that tab
@@ -91,6 +114,17 @@ function RoundView({
   const coins = result ? banked : banked - clueState.spent;
 
   const buckets = difficulty === 'hard' ? hardGroups : round.buckets;
+
+  /**
+   * What the filing bank will act on: every held station, or else the tuned one.
+   *
+   * Holding is opt-in, so the common path — listen, file, listen, file — never
+   * involves a selection at all.
+   */
+  const target = useMemo(
+    () => (held.size > 0 ? [...held] : tunedId ? [tunedId] : []),
+    [held, tunedId],
+  );
 
   const counts = useMemo(() => {
     const out: Record<string, number> = {};
@@ -126,41 +160,46 @@ function RoundView({
     return out;
   }, [clueState.revealedLanguages, round.tiles]);
 
-  const toggleSelect = useCallback((tileId: string) => {
-    setSelected((prev) => {
+  const toggleHold = useCallback(() => {
+    if (!tunedId) return;
+    setHeld((prev) => {
       const next = new Set(prev);
-      if (next.has(tileId)) next.delete(tileId);
-      else next.add(tileId);
+      if (next.has(tunedId)) next.delete(tunedId);
+      else next.add(tunedId);
+      setAnnouncement(next.has(tunedId) ? 'Station held.' : 'Station released.');
       return next;
     });
-  }, []);
+  }, [tunedId]);
 
-  const assignSelected = useCallback(
+  const assignTarget = useCallback(
     (bucketId: string) => {
-      if (selected.size === 0) return;
+      if (target.length === 0) return;
       const bucket = buckets.find((b) => b.id === bucketId);
       setAssignment((prev) => {
         const next = { ...prev };
-        for (const id of selected) next[id] = bucketId;
+        for (const id of target) next[id] = bucketId;
         return next;
       });
       setAnnouncement(
-        `${selected.size} tile${selected.size === 1 ? '' : 's'} moved to ${bucket?.label ?? 'group'}.`,
+        `${target.length} station${target.length === 1 ? '' : 's'} filed under ${bucket?.label ?? 'group'}.`,
       );
-      setSelected(new Set());
+      setHeld(new Set());
     },
-    [buckets, selected],
+    [buckets, target],
   );
 
-  const unassignSelected = useCallback(() => {
+  const unassignTarget = useCallback(() => {
+    if (target.length === 0) return;
     setAssignment((prev) => {
       const next = { ...prev };
-      for (const id of selected) delete next[id];
+      for (const id of target) delete next[id];
       return next;
     });
-    setAnnouncement(`${selected.size} tile${selected.size === 1 ? '' : 's'} removed from groups.`);
-    setSelected(new Set());
-  }, [selected]);
+    setAnnouncement(
+      `${target.length} station${target.length === 1 ? '' : 's'} taken back out.`,
+    );
+    setHeld(new Set());
+  }, [target]);
 
   const addGroup = useCallback(() => {
     setHardGroups((prev) => {
@@ -172,14 +211,13 @@ function RoundView({
 
   const buyClue = useCallback(
     (id: ClueId) => {
-      const tileId = selected.size === 1 ? [...selected][0] : undefined;
-      const outcome = purchaseClue(clueState, coins, round, id, tileId);
+      const outcome = purchaseClue(clueState, coins, round, id, tunedId ?? undefined);
       if (!outcome.ok) {
         setAnnouncement(
           outcome.reason === 'insufficient-coins'
             ? 'Not enough coins for that clue.'
             : outcome.reason === 'needs-tile'
-              ? 'Select exactly one tile first.'
+              ? 'Tune a station first.'
               : 'That clue is already active.',
         );
         return;
@@ -187,11 +225,11 @@ function RoundView({
       setClueState(outcome.state);
       setAnnouncement('Clue purchased.');
       // Close the shop on success. Every clue pays out on the board behind this
-      // modal, so leaving it open means the player spends coins and sees
+      // panel, so leaving it open means the player spends coins and sees
       // nothing until they think to dismiss it.
       setShopOpen(false);
     },
-    [clueState, coins, round, selected],
+    [clueState, coins, round, tunedId],
   );
 
   const submit = useCallback(async () => {
@@ -220,72 +258,150 @@ function RoundView({
   }, [assignment, clueState, round, startedAt]);
 
   const placed = Object.keys(assignment).length;
-  const difficultyLabel = { easy: 'Easy', medium: 'Medium', hard: 'Hard' }[difficulty];
+  const total = round.tiles.length;
+  const tunedIndex = tunedId ? round.tiles.findIndex((t) => t.id === tunedId) : -1;
+  const tunedTile = tunedIndex >= 0 ? round.tiles[tunedIndex] : null;
+
+  /**
+   * The guided round advances on what the player actually did, never on a timer.
+   * A step whose `done` predicate is already true when it opens is skipped, so
+   * a returning player is never told to do something they have just done.
+   */
+  const facts = useMemo(
+    () => ({
+      heard: audio.heard.size,
+      placed,
+      held: held.size,
+      shopOpened: clueState.purchases.length > 0 || shopOpen,
+    }),
+    [audio.heard.size, clueState.purchases.length, held.size, placed, shopOpen],
+  );
+
+  useEffect(() => {
+    if (step < 0 || step >= TUTORIAL_STEPS.length) return;
+    if (TUTORIAL_STEPS[step].done?.(facts)) setStep((s) => s + 1);
+  }, [facts, step]);
+
+  const endTutorial = useCallback(() => {
+    setStep(-1);
+    void markTutorialSeen();
+  }, []);
+
+  useEffect(() => {
+    if (step >= TUTORIAL_STEPS.length) endTutorial();
+  }, [endTutorial, step]);
 
   return (
-    <div className="mx-auto flex min-h-full w-full max-w-lg flex-col gap-3 p-3 pb-6">
-      <header className="flex items-center justify-between gap-2">
+    <div className="chassis mx-auto flex min-h-full w-full max-w-lg flex-col gap-2.5 p-3 pb-5">
+      <header className="flex items-center gap-2">
         <button
           type="button"
           onClick={onExit}
-          className="rounded-lg px-2 py-1 text-sm text-slate-300 hover:text-white"
+          className="legend well flex h-9 items-center gap-1 rounded px-2.5 text-[color:var(--color-legend)] transition-colors hover:text-[color:var(--color-signal)]"
         >
-          ← Back
+          <span aria-hidden="true">←</span> Back
         </button>
-        <span className="text-xs font-semibold tracking-wide text-slate-400 uppercase">
-          {difficultyLabel}
-          {clueState.languageCountRevealed && ` · ${round.languages.length} languages`}
-        </span>
+
+        <p className="nameplate flex-1 text-center text-lg text-[color:var(--color-ink)]">
+          {DIFFICULTY_LABEL[difficulty]} band
+          {clueState.languageCountRevealed && (
+            <span className="readout ml-1.5 text-[11px] font-bold text-[color:var(--color-signal)]">
+              {round.languages.length} LANGS
+            </span>
+          )}
+        </p>
+
+        <button
+          type="button"
+          onClick={() => setStep(0)}
+          aria-label="Open the manual"
+          data-testid="open-manual"
+          className="legend well flex h-9 w-9 items-center justify-center rounded text-[color:var(--color-legend)] transition-colors hover:text-[color:var(--color-signal)]"
+        >
+          ?
+        </button>
+
         <button
           type="button"
           onClick={() => setShopOpen(true)}
           data-testid="open-shop"
-          className="rounded-lg bg-amber-500/15 px-3 py-1.5 text-sm font-bold text-amber-300 tabular-nums hover:bg-amber-500/25"
+          aria-label={`Clue shop. ${coins} coins.`}
+          className="well flex h-9 items-center gap-1.5 rounded px-2.5 transition-colors hover:shadow-[inset_0_0_0_1.5px_var(--color-signal)]"
         >
-          {coins} 🪙
+          <span className="legend text-[color:var(--color-legend)]">Clues</span>
+          <span className="readout text-sm font-bold text-[color:var(--color-signal)]">{coins}</span>
         </button>
       </header>
 
-      {/* Screen readers hear every assignment; sighted players see the badges. */}
+      <BandMeter placed={placed} total={total} heard={audio.heard.size} />
+
+      {/* Screen readers hear every filing; sighted players see the counters. */}
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
 
       {audio.error && (
-        <p role="alert" className="rounded-lg bg-rose-500/15 px-3 py-2 text-xs text-rose-200">
+        <p
+          role="alert"
+          className="legend rounded border border-[color:var(--color-fault)]/50 bg-[color:var(--color-fault)]/10 px-3 py-2 normal-case text-[color:var(--color-fault)]"
+        >
           {audio.error}
         </p>
       )}
 
-      <Board
-        tiles={round.tiles}
-        assignment={assignment}
-        selected={selected}
-        playing={audio.playing}
-        loaded={audio.loaded}
-        progressed={audio.progressed}
-        bucketLabels={bucketLabels}
-        clueColors={clueColors}
-        revealedWords={new Set(clueState.revealedWords)}
-        revealedRomanizations={new Set(clueState.revealedRomanizations)}
-        revealedLanguages={revealedLanguages}
-        onToggleSelect={toggleSelect}
-        onPlay={audio.play}
-        onQuickAssign={(index) => {
-          const bucket = buckets[index];
-          if (bucket) assignSelected(bucket.id);
-        }}
+      <div className="engrave rounded-lg p-2">
+        <Board
+          tiles={round.tiles}
+          assignment={assignment}
+          marked={held}
+          heard={audio.heard}
+          tunedId={tunedId}
+          playing={audio.playing}
+          progress={audio.progress}
+          loaded={audio.loaded}
+          progressed={audio.progressed}
+          peaks={peaks}
+          bucketLabels={bucketLabels}
+          clueColors={clueColors}
+          revealedWords={new Set(clueState.revealedWords)}
+          revealedRomanizations={new Set(clueState.revealedRomanizations)}
+          revealedLanguages={revealedLanguages}
+          onTune={setTunedId}
+          onPlay={audio.play}
+          onToggleHold={toggleHold}
+          onQuickAssign={(index) => {
+            const bucket = buckets[index];
+            if (bucket) assignTarget(bucket.id);
+          }}
+        />
+      </div>
+
+      <TunerStrip
+        station={tunedIndex >= 0 ? tunedIndex + 1 : null}
+        peaks={tunedTile ? (peaks[tunedTile.id] ?? null) : null}
+        heard={tunedId ? audio.heard.has(tunedId) : false}
+        playing={audio.playing !== null && audio.playing === tunedId}
+        progress={audio.progress}
+        held={tunedId ? held.has(tunedId) : false}
+        filedUnder={
+          tunedId && assignment[tunedId] ? (bucketLabels[assignment[tunedId]] ?? null) : null
+        }
+        heldCount={held.size}
+        onReplay={() => tunedId && audio.play(tunedId)}
+        onToggleHold={toggleHold}
+        onReleaseAll={() => setHeld(new Set())}
       />
 
       <GroupTray
         buckets={buckets}
         counts={counts}
-        selectedCount={selected.size}
+        targetCount={target.length}
+        targetIsHeld={held.size > 0}
         canAddGroup={difficulty === 'hard' && hardGroups.length < HARD_MAX_GROUPS}
-        onAssign={assignSelected}
+        canUnassign={target.some((id) => assignment[id])}
+        onAssign={assignTarget}
         onAddGroup={addGroup}
-        onClearSelection={() => setSelected(new Set())}
-        onUnassignSelected={unassignSelected}
+        onUnassignTarget={unassignTarget}
       />
 
       <button
@@ -293,9 +409,14 @@ function RoundView({
         onClick={submit}
         disabled={placed === 0}
         data-testid="submit-round"
-        className="mt-auto w-full rounded-xl bg-sky-500 py-3.5 text-base font-bold text-slate-900 hover:bg-sky-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+        className={[
+          'nameplate mt-auto w-full rounded-lg py-3.5 text-lg tracking-[0.06em] transition-[box-shadow,background-color] duration-200',
+          placed === 0
+            ? 'well cursor-not-allowed text-[color:var(--color-legend-dim)]'
+            : 'bg-[color:var(--color-signal)] text-[#140e07] shadow-[0_6px_22px_-8px_rgb(255_167_36/0.9)] hover:bg-[color:var(--color-ink)]',
+        ].join(' ')}
       >
-        {placed === 0 ? 'Place some tiles first' : `Submit ${placed} of 16`}
+        {placed === 0 ? 'File a station to transmit' : `Transmit — ${placed} of ${total}`}
       </button>
 
       <ClueShop
@@ -303,11 +424,19 @@ function RoundView({
         coins={coins}
         difficulty={difficulty}
         state={clueState}
-        selectedCount={selected.size}
+        tunedStation={tunedIndex >= 0 ? tunedIndex + 1 : null}
         languageCount={round.languages.length}
         onBuy={buyClue}
         onClose={() => setShopOpen(false)}
       />
+
+      {step >= 0 && step < TUTORIAL_STEPS.length && (
+        <Coach
+          step={step}
+          onNext={() => setStep((s) => s + 1)}
+          onSkip={endTutorial}
+        />
+      )}
 
       {result && (
         <ResultsPanel
@@ -318,6 +447,44 @@ function RoundView({
           onHome={onExit}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Progress, as a receiver's signal-strength meter.
+ *
+ * The original board had no progress indicator at all, so a player mid-round
+ * could not tell whether they had filed four stations or fourteen without
+ * counting tiles. Each segment is one station; a filed segment is lit, a heard
+ * one is dim but present, an untouched one is dark.
+ */
+function BandMeter({ placed, total, heard }: { placed: number; total: number; heard: number }) {
+  return (
+    <div className="flex items-center gap-2.5">
+      <span className="legend shrink-0">Filed</span>
+      <span
+        aria-hidden="true"
+        className="engrave flex h-3.5 flex-1 items-center gap-[2px] rounded-sm px-1"
+      >
+        {Array.from({ length: total }, (_, i) => (
+          <span
+            key={i}
+            className="h-1.5 flex-1 rounded-[1px] transition-colors duration-300"
+            style={{
+              backgroundColor:
+                i < placed
+                  ? 'var(--color-signal)'
+                  : i < heard
+                    ? 'var(--color-signal-deep)'
+                    : 'rgb(255 226 178 / 0.09)',
+            }}
+          />
+        ))}
+      </span>
+      <span className="readout shrink-0 text-xs font-bold text-[color:var(--color-signal)]">
+        {placed}/{total}
+      </span>
     </div>
   );
 }
