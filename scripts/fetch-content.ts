@@ -28,9 +28,16 @@ import {
   MAX_DURATION_S,
   MAX_SPEAKER_SHARE,
   MIN_DURATION_S,
+  MIN_TILE_DURATION_S,
   MIN_SPEAKERS_PER_LANGUAGE,
+  ABSOLUTE_MIN_SPEAKERS,
+  MIN_WORDS_PER_SPEAKER,
+  OPUS_BITRATE,
   SCHEMA_VERSION,
+  TILE_GAP_S,
+  TILES_PER_LANGUAGE,
   WORDS_PER_LANGUAGE,
+  WORDS_PER_TILE,
 } from './content.config.ts';
 import {
   categoryFileCount,
@@ -40,6 +47,7 @@ import {
 } from './lib/wikimedia.ts';
 import {
   curateWord,
+  estimateSyllables,
   parseFilename,
   refineWord,
   selectWithSpeakerDiversity,
@@ -47,7 +55,50 @@ import {
 } from './lib/curate.ts';
 import { clipAudioPath, clipId } from './lib/clip-id.ts';
 import { romanize } from './lib/romanize.ts';
-import { probeDuration, resolveFfmpeg, transcodeToOpus } from './lib/transcode.ts';
+import {
+  assembleUtterance,
+  prepareWord,
+  probeDuration,
+  resolveFfmpeg,
+} from './lib/transcode.ts';
+
+/** One fetched, curated and level-normalised source word, ready for assembly. */
+interface PreparedWord {
+  word: string;
+  romanization: string | null;
+  speaker: string;
+  license: string;
+  licenseUrl: string | null;
+  sourceUrl: string;
+  duration: number;
+  /** Path to the normalised intermediate WAV in `.cache/`. */
+  path: string;
+  /** Approximate syllable count, used to prefer longer words. */
+  syllables: number;
+}
+
+/**
+ * Licence restrictiveness, least to most.
+ *
+ * A tile is a derivative of every word in it, so it can only be offered under
+ * terms that satisfy all of them: mixing a CC0 word with a CC BY-SA word yields
+ * a CC BY-SA tile. Anything not recognised sorts last, so an unfamiliar licence
+ * is treated as the most restrictive rather than silently assumed permissive.
+ */
+const LICENSE_ORDER = ['CC0', 'CC BY 4.0', 'CC BY-SA 4.0'];
+
+function mostRestrictiveLicense(licenses: string[]): string {
+  const rank = (l: string) => {
+    const i = LICENSE_ORDER.indexOf(l);
+    return i === -1 ? LICENSE_ORDER.length : i;
+  };
+  return [...licenses].sort((a, b) => rank(b) - rank(a))[0];
+}
+
+/** The deed URL belonging to whichever source carries the effective licence. */
+function licenseUrlFor(license: string, sources: PreparedWord[]): string | null {
+  return sources.find((s) => s.license === license)?.licenseUrl ?? null;
+}
 
 const ROOT = process.cwd();
 const AUDIO_CACHE = join(ROOT, '.cache', 'audio');
@@ -55,7 +106,7 @@ const AUDIO_OUT = join(ROOT, 'public', 'audio');
 const MANIFEST_OUT = join(ROOT, 'src', 'content', 'manifest.json');
 const ATTRIBUTION_OUT = join(ROOT, 'ATTRIBUTION.md');
 
-const MAX_PER_SPEAKER = Math.max(1, Math.round(WORDS_PER_LANGUAGE * MAX_SPEAKER_SHARE));
+const MAX_TILES_PER_SPEAKER = Math.max(1, Math.round(TILES_PER_LANGUAGE * MAX_SPEAKER_SHARE));
 
 interface Candidate {
   title: string;
@@ -135,23 +186,82 @@ async function processLanguage(lang: LanguageMeta): Promise<ClipMeta[]> {
     candidates.push({ title: member.title, speaker: parsed.speaker, word: parsed.word, rest: parsed.rest });
   }
 
-  // Over-select so that clips lost to bad duration or transcode failure below
-  // do not leave the language short of its target.
+  // What the corpus can actually deliver, measured rather than assumed.
+  //
+  // The speaker floor is a target — "10 where the corpus allows". Whether the
+  // corpus allows it is a fact about Lingua Libre, not a knob: it is volunteer
+  // recorded, and several languages were contributed by a handful of people.
+  // Counting distinct speakers who have at least a tile's worth of *curated*
+  // words gives the real ceiling, and it is often far below the raw speaker
+  // count because curation is what removes voices, not selection. German has 84
+  // contributors in the category but only 31 survive curation, because German
+  // capitalises every noun and the proper-noun filter is necessarily blunt.
+  //
+  // Comparing against this ceiling rather than a hardcoded per-language table
+  // keeps the gate honest in both directions: it cannot demand the impossible,
+  // and it still fires if selection ever stops using a roster that *is*
+  // available — which is the regression actually worth catching. It also scales
+  // to new languages with no table to maintain.
+  // Counted with the same global word de-duplication that selection applies,
+  // otherwise the estimate is optimistic: two speakers who both recorded the
+  // same common word do not both get to use it, so a naive per-speaker count
+  // credits a voice that selection will find has nothing left. That produced a
+  // consistent off-by-one against this gate on four languages.
+  const wordsPerCandidateSpeaker = new Map<string, Set<string>>();
+  const seenAcrossSpeakers = new Set<string>();
+  for (const c of candidates) {
+    const word = c.word.toLowerCase();
+    if (seenAcrossSpeakers.has(word)) continue;
+    seenAcrossSpeakers.add(word);
+    const set = wordsPerCandidateSpeaker.get(c.speaker) ?? new Set<string>();
+    set.add(word);
+    wordsPerCandidateSpeaker.set(c.speaker, set);
+  }
+  const achievableSpeakers = [...wordsPerCandidateSpeaker.values()].filter(
+    (s) => s.size >= WORDS_PER_TILE,
+  ).length;
+
+  // Over-select heavily. Every tile needs WORDS_PER_TILE words from a *single*
+  // speaker, so losses are far more expensive than before: a speaker who ends
+  // up one word short of a multiple of three wastes the remainder entirely.
+  // Selection now works in whole tiles' worth of words per speaker, and the
+  // per-speaker cap is expressed in *tiles* rather than words, because that is
+  // what actually controls how many voices reach the board.
+  //
+  // The multipliers are deliberately generous because the duration filter runs
+  // *after* this point: a word's length is only known once it is downloaded, so
+  // MAX_DURATION_S punches holes in blocks that were already chosen. A speaker
+  // selected with exactly three words who loses one to that filter drops below
+  // MIN_WORDS_PER_SPEAKER and vanishes from the board entirely. That is what
+  // held Ukrainian to 9 speakers when the corpus could field 13, and Dutch to 9
+  // out of 16. Selecting extra words per speaker lets stage 2 re-form whole
+  // blocks from whatever survives, and costs only cached downloads.
+  //
+  // The real per-speaker limit is still enforced in stage 2, where the tile
+  // round-robin caps each voice at MAX_TILES_PER_SPEAKER, so over-selecting
+  // words here cannot concentrate the finished board.
   const selected = selectWithSpeakerDiversity(
     candidates,
-    Math.ceil(WORDS_PER_LANGUAGE * 1.6),
-    Math.ceil(MAX_PER_SPEAKER * 1.6),
+    Math.ceil(WORDS_PER_LANGUAGE * 2.5),
+    MAX_TILES_PER_SPEAKER * WORDS_PER_TILE * 2,
     tally,
+    WORDS_PER_TILE,
   );
 
   const info = await fetchFileInfo(selected.map((c) => c.title));
   await mkdir(AUDIO_OUT, { recursive: true });
   await mkdir(join(AUDIO_CACHE, lang.id), { recursive: true });
 
-  const clips: ClipMeta[] = [];
+  // --- Stage 1: fetch and normalise each source word individually ----------
+  //
+  // Normalising per word, before assembly, fixes something assembly alone
+  // cannot: the same speaker often recorded across several sessions at
+  // different levels, so concatenating raw words produces a tile that lurches
+  // in volume. The tile is levelled again after assembly; this pass is about
+  // making the *constituents* consistent with each other.
+  const prepared: PreparedWord[] = [];
 
   for (const candidate of selected) {
-    if (clips.length >= WORDS_PER_LANGUAGE) break;
     const meta = info.get(candidate.title);
     if (!meta) {
       bump('download-or-transcode-failed');
@@ -168,40 +278,37 @@ async function processLanguage(lang: LanguageMeta): Promise<ClipMeta[]> {
       bump(recheck.reason!);
       continue;
     }
-    const id = clipId(lang.id, word, speaker);
 
     // The download cache is keyed by the Commons title — the clip's true
-    // identity — so changing our own id scheme never invalidates 34 MB of
+    // identity — so changing our own id scheme never invalidates 100+ MB of
     // already-fetched audio. It lives under a per-language directory purely
     // for human legibility; `.cache/` is gitignored and never shipped.
-    const wavPath = join(AUDIO_CACHE, lang.id, `${sourceCacheKey(candidate.title)}.src`);
-    const opusPath = join(AUDIO_OUT, `${id}.opus`);
+    const key = sourceCacheKey(candidate.title);
+    const wavPath = join(AUDIO_CACHE, lang.id, `${key}.src`);
+    const normPath = join(AUDIO_CACHE, lang.id, `${key}.norm.wav`);
 
     try {
       await downloadFile(meta.url, wavPath);
-      // Resumability: an already-transcoded clip only needs its duration read
-      // back, which is far cheaper than re-running the filter chain.
-      const duration = existsSync(opusPath)
-        ? await probeDuration(opusPath)
-        : await transcodeToOpus(wavPath, opusPath);
+      const duration = existsSync(normPath)
+        ? await probeDuration(normPath)
+        : await prepareWord(wavPath, normPath);
 
       if (duration < MIN_DURATION_S || duration > MAX_DURATION_S) {
         bump('bad-duration');
-        await rm(opusPath, { force: true });
+        await rm(normPath, { force: true });
         continue;
       }
 
-      clips.push({
-        id,
-        language: lang.id,
+      prepared.push({
         word,
         romanization: romanize(word, lang.id, lang.script),
-        audio: clipAudioPath(id),
-        duration: Number(duration.toFixed(2)),
         speaker,
         license: meta.license,
         licenseUrl: meta.licenseUrl,
         sourceUrl: meta.descriptionUrl,
+        duration,
+        path: normPath,
+        syllables: estimateSyllables(word, lang.script),
       });
     } catch (err) {
       bump('download-or-transcode-failed');
@@ -209,22 +316,166 @@ async function processLanguage(lang: LanguageMeta): Promise<ClipMeta[]> {
     }
   }
 
+  // --- Stage 2: group by speaker and assemble tiles ------------------------
+  const bySpeaker = new Map<string, PreparedWord[]>();
+  for (const w of prepared) {
+    const list = bySpeaker.get(w.speaker) ?? [];
+    list.push(w);
+    bySpeaker.set(w.speaker, list);
+  }
+
+  // Prefer multi-syllable words, but only as a *partition*, not as a ranking.
+  //
+  // Three monosyllables carry barely more prosody than the single short words
+  // this redesign exists to replace, so polysyllables go first and monosyllables
+  // are used only to top up. Sorting by length outright was tried and was
+  // worse: it packs a speaker's three longest words into one tile, which
+  // produced a 6.3-second outlier against a 3.4-second median. Uneven tile
+  // length is itself a tell — a player can start guessing on duration rather
+  // than on sound — so an even spread beats a maximised one.
+  for (const list of bySpeaker.values()) {
+    list.sort((a, b) => Number(a.syllables < 2) - Number(b.syllables < 2));
+  }
+
+  const usableSpeakers = [...bySpeaker.entries()].filter(
+    ([, list]) => list.length >= MIN_WORDS_PER_SPEAKER,
+  );
+  for (const [, list] of bySpeaker) {
+    if (list.length < MIN_WORDS_PER_SPEAKER) {
+      // Their words are unusable: a tile needs WORDS_PER_TILE from one voice.
+      for (let i = 0; i < list.length; i++) bump('speaker-too-few-words');
+    }
+  }
+
+  // Round-robin across speakers rather than draining one at a time, so that if
+  // the target is reached early the tiles still span as many voices as possible.
+  const groups: PreparedWord[][] = [];
+  const cursors = new Map<string, number>(usableSpeakers.map(([n]) => [n, 0]));
+  let progressed = true;
+  while (groups.length < TILES_PER_LANGUAGE && progressed) {
+    progressed = false;
+    for (const [name, list] of usableSpeakers) {
+      if (groups.length >= TILES_PER_LANGUAGE) break;
+      const at = cursors.get(name)!;
+      if (at + WORDS_PER_TILE > list.length) continue;
+      const group = list.slice(at, at + WORDS_PER_TILE);
+      cursors.set(name, at + WORDS_PER_TILE);
+      progressed = true;
+
+      // Reject a tile too short to be judged, before paying to encode it.
+      // Word durations are already known, so the finished length is predictable
+      // to within a few milliseconds: the words plus the gaps between them.
+      const predicted =
+        group.reduce((sum, w) => sum + w.duration, 0) + TILE_GAP_S * (WORDS_PER_TILE - 1);
+      if (predicted < MIN_TILE_DURATION_S) {
+        bump('tile-too-short');
+        continue;
+      }
+      groups.push(group);
+    }
+  }
+
+  const clips: ClipMeta[] = [];
+  for (const group of groups) {
+    const words = group.map((w) => w.word);
+    const speaker = group[0].speaker;
+    const utterance = words.join(' ');
+    const id = clipId(lang.id, utterance, speaker);
+    const opusPath = join(AUDIO_OUT, `${id}.opus`);
+
+    try {
+      const duration = existsSync(opusPath)
+        ? await probeDuration(opusPath)
+        : await assembleUtterance(
+            group.map((w) => w.path),
+            opusPath,
+            TILE_GAP_S,
+            OPUS_BITRATE,
+          );
+
+      const romanizations = group.map((w) => w.romanization);
+      clips.push({
+        id,
+        language: lang.id,
+        word: utterance,
+        romanization: romanizations.every((r) => r) ? romanizations.join(' ') : null,
+        audio: clipAudioPath(id),
+        duration: Number(duration.toFixed(2)),
+        speaker,
+        sources: group.map((w) => ({
+          word: w.word,
+          romanization: w.romanization,
+          speaker: w.speaker,
+          license: w.license,
+          licenseUrl: w.licenseUrl,
+          sourceUrl: w.sourceUrl,
+          duration: Number(w.duration.toFixed(2)),
+        })),
+        license: mostRestrictiveLicense(group.map((w) => w.license)),
+        licenseUrl: licenseUrlFor(
+          mostRestrictiveLicense(group.map((w) => w.license)),
+          group,
+        ),
+        sourceUrl: group[0].sourceUrl,
+      });
+    } catch (err) {
+      bump('download-or-transcode-failed');
+      console.warn(`    ! assemble ${id}: ${(err as Error).message.split('\n')[0]}`);
+    }
+  }
+
   printTally(tally, clips.length);
 
   const speakers = new Set(clips.map((c) => c.speaker));
+  const durations = clips.map((c) => c.duration).sort((a, b) => a - b);
+  if (durations.length > 0) {
+    const at = (q: number) => durations[Math.min(durations.length - 1, Math.floor(q * durations.length))];
+    console.log(
+      `  duration: min ${durations[0].toFixed(2)}s  median ${at(0.5).toFixed(2)}s  max ${durations[durations.length - 1].toFixed(2)}s`,
+    );
+  }
   console.log(`  speakers: ${speakers.size} (${[...speakers].slice(0, 6).join(', ')}${speakers.size > 6 ? ', …' : ''})`);
 
-  if (clips.length < WORDS_PER_LANGUAGE) {
+  if (clips.length < TILES_PER_LANGUAGE) {
     console.warn(
-      `  WARNING: ${lang.name} yielded ${clips.length}/${WORDS_PER_LANGUAGE} clips. ` +
+      `  WARNING: ${lang.name} yielded ${clips.length}/${TILES_PER_LANGUAGE} tiles. ` +
         `Raise CANDIDATE_POOL_SIZE or relax curation for this script.`,
     );
   }
-  if (speakers.size < MIN_SPEAKERS_PER_LANGUAGE) {
-    console.warn(
-      `  WARNING: only ${speakers.size} distinct speakers for ${lang.name}. ` +
-        `Players may learn the voice rather than the language.`,
+
+  // Recorded now, raised as a hard failure once every language has been
+  // processed. Failing loudly is the requirement — with too few voices a player
+  // learns the people rather than the language, and per-language accuracy
+  // silently becomes a measure of voice recall — but throwing here would
+  // abandon a half-hour run over a language listed near the top, and the
+  // operator would then fix them one slow run at a time. Collecting first
+  // reports every offender in one pass.
+  // Two distinct failures, deliberately separated.
+  //
+  // Falling short of what the corpus can supply is a pipeline regression and
+  // fails the build. Having a corpus that simply cannot reach the target floor
+  // is a fact to report, not a bug to fail on — unless it is so thin that the
+  // language should not ship at all.
+  const attainable = Math.min(MIN_SPEAKERS_PER_LANGUAGE, achievableSpeakers);
+  if (speakers.size < attainable) {
+    speakerFloorFailures.push(
+      `${lang.name} (${lang.id}): ${speakers.size} speakers across ${clips.length} tiles, ` +
+        `but the curated corpus can field ${achievableSpeakers} — selection is losing voices`,
     );
+    console.warn(`  SPEAKER FLOOR FAILED: ${speakers.size} < ${attainable} (attainable)`);
+  } else if (speakers.size < MIN_SPEAKERS_PER_LANGUAGE) {
+    console.warn(
+      `  thin roster: ${speakers.size} speakers (target ${MIN_SPEAKERS_PER_LANGUAGE}, ` +
+        `corpus ceiling ${achievableSpeakers}) — at the corpus limit, not a pipeline fault`,
+    );
+  }
+
+  if (speakers.size < ABSOLUTE_MIN_SPEAKERS) {
+    speakerFloorFailures.push(
+      `${lang.name} (${lang.id}): ${speakers.size} speakers is below the absolute ` +
+        `minimum of ${ABSOLUTE_MIN_SPEAKERS}; drop the language rather than ship it`,
+    );
+    console.warn(`  BELOW ABSOLUTE MINIMUM: ${speakers.size} < ${ABSOLUTE_MIN_SPEAKERS}`);
   }
 
   return clips;
@@ -320,12 +571,15 @@ async function pruneAudio(keep: Map<string, ClipMeta>): Promise<void> {
   if (removed) console.log(`  pruned ${removed} unreferenced audio file(s)`);
 }
 
+/** Languages that fell below the speaker floor; fatal, reported after the run. */
+const speakerFloorFailures: string[] = [];
+
 async function main() {
   const only = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const targets = only.length ? LANGUAGES.filter((l) => only.includes(l.id)) : LANGUAGES;
 
   console.log(`ffmpeg: ${await resolveFfmpeg()}`);
-  console.log(`target: ${targets.length} languages x ${WORDS_PER_LANGUAGE} words`);
+  console.log(`target: ${targets.length} languages x ${TILES_PER_LANGUAGE} tiles x ${WORDS_PER_TILE} words`);
 
   const clips: ClipMeta[] = [];
   for (const lang of targets) {
@@ -381,6 +635,18 @@ async function main() {
   }
   console.log(`  licences: ${[...licenses.entries()].map(([l, n]) => `${l} x${n}`).join(', ')}`);
   console.log(`  manifest: ${MANIFEST_OUT} (${manifest.clips.length} clips)`);
+
+  if (speakerFloorFailures.length > 0) {
+    throw new Error(
+      `${speakerFloorFailures.length} language(s) below their speaker floor ` +
+        `(target ${MIN_SPEAKERS_PER_LANGUAGE}, capped by each corpus ceiling):\n    ` +
+        `${speakerFloorFailures.join('\n    ')}\n` +
+        `  With so few voices players learn the speakers, not the language, and ` +
+        `per-language accuracy stops measuring the skill the game claims to teach.\n` +
+        `  Fix by raising CANDIDATE_POOL_SIZE, relaxing curation for the script, ` +
+        `or removing the language from LANGUAGES in scripts/content.config.ts.`,
+    );
+  }
 }
 
 main().catch((err) => {
