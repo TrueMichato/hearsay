@@ -33,6 +33,19 @@ export interface BoardAudio {
    * tests can assert sound really happened.
    */
   progressed: Set<string>;
+  /**
+   * Tile ids the player has asked to hear.
+   *
+   * Distinct from `progressed` on purpose. `progressed` is *evidence* that
+   * sound came out, which only arrives on the first `timeupdate`; a player who
+   * taps four tiles in quick succession interrupts three of them before that
+   * fires. `heard` is the player's own record of where they have been, so it
+   * flips the moment they ask, and the board can keep an honest map of the band
+   * even under fast sweeping.
+   */
+  heard: Set<string>;
+  /** 0-1 position through the clip currently sounding. 0 when nothing is. */
+  progress: number;
   /** True once every tile on the board can play without buffering. */
   ready: boolean;
   /** Set if the browser refused to play, so the UI can explain itself. */
@@ -54,7 +67,10 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
   const [playing, setPlaying] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [progressed, setProgressed] = useState<Set<string>>(new Set());
+  const [heard, setHeard] = useState<Set<string>>(new Set());
+  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const frame = useRef<number | null>(null);
 
   useEffect(() => {
     const map = elements.current;
@@ -84,7 +100,10 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
         if (el.currentTime <= 0) return;
         setProgressed((prev) => (prev.has(tile.id) ? prev : new Set(prev).add(tile.id)));
       });
-      el.addEventListener('ended', () => setPlaying(null));
+      el.addEventListener('ended', () => {
+        setPlaying(null);
+        setProgress(0);
+      });
       el.load();
       map.set(tile.id, el);
     }
@@ -95,6 +114,24 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
     };
   }, [tiles]);
 
+  // The playhead is animated from a frame loop rather than from `timeupdate`,
+  // which browsers fire only about four times a second — fast enough for a
+  // progress bar, far too coarse for a needle the eye follows across a
+  // three-second clip.
+  useEffect(() => {
+    if (!playing) return;
+    const tick = () => {
+      const el = current.current;
+      if (el && el.duration > 0) setProgress(Math.min(1, el.currentTime / el.duration));
+      frame.current = requestAnimationFrame(tick);
+    };
+    frame.current = requestAnimationFrame(tick);
+    return () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
+    };
+  }, [playing]);
+
   const stop = useCallback(() => {
     if (current.current) {
       current.current.pause();
@@ -102,6 +139,7 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
       current.current = null;
     }
     setPlaying(null);
+    setProgress(0);
   }, []);
 
   const play = useCallback(
@@ -117,6 +155,8 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
       el.currentTime = 0;
       current.current = el;
       setPlaying(tileId);
+      setProgress(0);
+      setHeard((prev) => (prev.has(tileId) ? prev : new Set(prev).add(tileId)));
       setError(null);
 
       // `play()` returns a promise that rejects under autoplay restrictions or
@@ -137,6 +177,8 @@ export function useBoardAudio(tiles: BoardTile[]): BoardAudio {
     playing,
     loaded,
     progressed,
+    heard,
+    progress,
     ready: tiles.length > 0 && tiles.every((t) => loaded.has(t.id)),
     error,
   };
