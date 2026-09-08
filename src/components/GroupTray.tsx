@@ -77,24 +77,26 @@ export function GroupTray({
                 : 'opacity-45',
             ].join(' ')}
           >
-            {/* The number-key accelerator, engraved beside the control like a
-                legend on a real front panel. */}
-            {index < 5 && (
-              <span
-                aria-hidden="true"
-                className="well readout flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-[color:var(--color-legend)]"
-              >
-                {index + 1}
-              </span>
-            )}
-            <span className="min-w-0 flex-1">
+            {/* The label comes first in the DOM so the button's text content
+                begins with the group name — the deploy verifier identifies
+                buckets that way, and CSS `order` puts the engraved number-key
+                accelerator back on the left where a front panel would have it. */}
+            <span className="order-2 min-w-0 flex-1">
               <span className="nameplate block truncate text-[15px] leading-tight text-[color:var(--color-ink)]">
                 {bucket.label}
               </span>
             </span>
+            {index < 5 && (
+              <span
+                aria-hidden="true"
+                className="well readout order-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold text-[color:var(--color-legend)]"
+              >
+                {index + 1}
+              </span>
+            )}
             <span
               aria-hidden="true"
-              className="readout shrink-0 text-base font-bold"
+              className="readout order-3 shrink-0 text-base font-bold"
               style={{
                 color:
                   (counts[bucket.id] ?? 0) > 0

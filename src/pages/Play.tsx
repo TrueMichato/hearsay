@@ -6,7 +6,8 @@ import { GroupTray } from '../components/GroupTray';
 import { ClueShop } from '../components/ClueShop';
 import { ResultsPanel } from '../components/ResultsPanel';
 import { TunerStrip } from '../components/TunerStrip';
-import { Coach, TUTORIAL_STEPS } from '../components/Coach';
+import { Coach } from '../components/Coach';
+import { TUTORIAL_STEPS } from '../game/tutorial';
 import { generateRound, GROUP_LABELS } from '../game/board';
 import { randomSeed } from '../game/rng';
 import { scoreRound, type RoundResult } from '../game/scoring';
@@ -277,19 +278,25 @@ function RoundView({
     [audio.heard.size, clueState.purchases.length, held.size, placed, shopOpen],
   );
 
-  useEffect(() => {
-    if (step < 0 || step >= TUTORIAL_STEPS.length) return;
-    if (TUTORIAL_STEPS[step].done?.(facts)) setStep((s) => s + 1);
+  // Which step is actually on screen. Derived rather than stored: a step whose
+  // goal is already satisfied is skipped past during render, so a player who
+  // ran ahead of the manual never gets told to do something they just did, and
+  // there is no flash of a stale step while an effect catches up.
+  const shownStep = useMemo(() => {
+    if (step < 0) return -1;
+    let at = step;
+    while (at < TUTORIAL_STEPS.length && TUTORIAL_STEPS[at].done?.(facts)) at += 1;
+    return at;
   }, [facts, step]);
 
-  const endTutorial = useCallback(() => {
-    setStep(-1);
-    void markTutorialSeen();
-  }, []);
+  const manualOpen = shownStep >= 0 && shownStep < TUTORIAL_STEPS.length;
 
+  // Persisting that the manual has been seen is a write to IndexedDB — a real
+  // external system — so it belongs in an effect. It fires once, when the last
+  // step is passed or the player skips out.
   useEffect(() => {
-    if (step >= TUTORIAL_STEPS.length) endTutorial();
-  }, [endTutorial, step]);
+    if (step >= 0 && shownStep >= TUTORIAL_STEPS.length) void markTutorialSeen();
+  }, [shownStep, step]);
 
   return (
     <div className="chassis mx-auto flex min-h-full w-full max-w-lg flex-col gap-2.5 p-3 pb-5">
@@ -430,11 +437,11 @@ function RoundView({
         onClose={() => setShopOpen(false)}
       />
 
-      {step >= 0 && step < TUTORIAL_STEPS.length && (
+      {manualOpen && (
         <Coach
-          step={step}
-          onNext={() => setStep((s) => s + 1)}
-          onSkip={endTutorial}
+          step={shownStep}
+          onNext={() => setStep(shownStep + 1)}
+          onSkip={() => setStep(TUTORIAL_STEPS.length)}
         />
       )}
 

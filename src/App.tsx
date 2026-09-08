@@ -3,6 +3,7 @@ import { Home } from './pages/Home';
 import { Play } from './pages/Play';
 import { Stats } from './pages/Stats';
 import { Credits } from './pages/Credits';
+import { useProfile } from './hooks/useProfile';
 import type { Difficulty } from './game/types';
 
 /**
@@ -16,7 +17,7 @@ import type { Difficulty } from './game/types';
  */
 type Route =
   | { name: 'home' }
-  | { name: 'play'; difficulty: Difficulty; seed?: string }
+  | { name: 'play'; difficulty: Difficulty; seed?: string; tutorial?: boolean }
   | { name: 'stats' }
   | { name: 'credits' };
 
@@ -24,12 +25,22 @@ const DIFFICULTIES: Difficulty[] = ['easy', 'medium', 'hard'];
 
 function parseHash(hash: string): Route {
   const path = hash.replace(/^#\/?/, '');
-  const [head, tail, seed] = path.split('/');
+  const [head, tail, seed, flag] = path.split('/');
   if (head === 'play' && DIFFICULTIES.includes(tail as Difficulty)) {
     // An optional seed makes a board reproducible: the same seed always deals
     // the same sixteen clips. End-to-end tests rely on it, and it is what a
     // "share this board" or daily-challenge feature would be built on.
-    return { name: 'play', difficulty: tail as Difficulty, seed: seed || undefined };
+    //
+    // The trailing `manual` flag opens the guided round. Keeping it in the URL
+    // rather than in component state means the manual is linkable, reopenable
+    // and testable, and that Play knows on its very first render whether to
+    // show it — no flash of the ungated board while a database read resolves.
+    return {
+      name: 'play',
+      difficulty: tail as Difficulty,
+      seed: seed || undefined,
+      tutorial: flag === 'manual',
+    };
   }
   if (head === 'stats') return { name: 'stats' };
   if (head === 'credits') return { name: 'credits' };
@@ -51,14 +62,20 @@ export function App() {
 
   const goHome = useCallback(() => go('/'), [go]);
 
+  // `undefined` means the profile read has not resolved yet; `tutorialSeenAt`
+  // is null only for a player who has never been shown the manual.
+  const profile = useProfile();
+  const firstRun = profile !== undefined && profile.tutorialSeenAt === null;
+
   switch (route.name) {
     case 'play':
       return (
         <Play
           // Remounting on difficulty change resets all round state cleanly.
-          key={`${route.difficulty}:${route.seed ?? ''}`}
+          key={`${route.difficulty}:${route.seed ?? ''}:${route.tutorial ? 'manual' : ''}`}
           difficulty={route.difficulty}
           initialSeed={route.seed}
+          tutorial={route.tutorial}
           onExit={goHome}
         />
       );
@@ -69,7 +86,10 @@ export function App() {
     default:
       return (
         <Home
-          onStart={(difficulty) => go(`/play/${difficulty}`)}
+          onStart={(difficulty) =>
+            go(`/play/${difficulty}${firstRun ? '//manual' : ''}`)
+          }
+          onManual={() => go('/play/easy//manual')}
           onStats={() => go('/stats')}
           onCredits={() => go('/credits')}
         />

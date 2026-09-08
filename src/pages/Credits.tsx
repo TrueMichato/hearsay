@@ -45,23 +45,23 @@ export function Credits({ onBack }: { onBack: () => void }) {
   }, []);
 
   return (
-    <div className="mx-auto w-full max-w-lg space-y-4 p-4 pb-10">
+    <div className="chassis grain mx-auto min-h-full w-full max-w-lg space-y-3 p-4 pb-10">
       <header className="flex items-center gap-2">
         <button
           type="button"
           onClick={onBack}
-          className="rounded-lg px-2 py-1 text-sm text-slate-300 hover:text-white"
+          className="legend panel rounded-lg px-3 py-2 text-[color:var(--color-legend)]"
         >
           ← Back
         </button>
-        <h1 className="text-lg font-bold">Credits &amp; licences</h1>
+        <h1 className="nameplate text-2xl text-[color:var(--color-ink)]">Credits &amp; licences</h1>
       </header>
 
-      <section className="space-y-2 rounded-2xl bg-slate-800/50 p-4 text-sm text-slate-300">
+      <section className="panel space-y-2 rounded-lg p-4 text-sm leading-relaxed text-[color:var(--color-legend)]">
         <p>
           Every word you hear in {BRANDING.name} was recorded by a volunteer native speaker for{' '}
           <a
-            className="text-sky-300 underline"
+            className="text-[color:var(--color-signal)] underline"
             href="https://lingualibre.org/"
             target="_blank"
             rel="noreferrer"
@@ -70,7 +70,7 @@ export function Credits({ onBack }: { onBack: () => void }) {
           </a>
           , a Wikimedia project, and published on{' '}
           <a
-            className="text-sky-300 underline"
+            className="text-[color:var(--color-signal)] underline"
             href="https://commons.wikimedia.org/"
             target="_blank"
             rel="noreferrer"
@@ -83,14 +83,14 @@ export function Credits({ onBack }: { onBack: () => void }) {
           {manifest.clips.length} recordings across {groups.length} languages. Audio was trimmed and
           loudness-normalised, then re-encoded to Opus; the words themselves are unaltered.
         </p>
-        <ul className="text-xs text-slate-400">
+        <ul className="readout text-xs text-[color:var(--color-legend-dim)]">
           {licenceTally.map(([license, count]) => (
             <li key={license}>
               {license} — {count} recordings
             </li>
           ))}
         </ul>
-        <p className="text-xs text-slate-400">
+        <p className="text-xs leading-relaxed text-[color:var(--color-legend-dim)]">
           Each recording keeps the licence it carries on Commons. Because the files here are
           modified, recordings under CC BY-SA 4.0 are redistributed under CC BY-SA 4.0 in turn, as
           ShareAlike requires. These terms cover the audio; {BRANDING.name}’s own code is licensed
@@ -99,19 +99,19 @@ export function Credits({ onBack }: { onBack: () => void }) {
       </section>
 
       {groups.map(({ language, clips, speakers }) => (
-        <details key={language.id} className="rounded-2xl bg-slate-800/50 p-3">
-          <summary className="cursor-pointer text-sm font-bold">
+        <details key={language.id} className="panel rounded-lg p-3">
+          <summary className="nameplate cursor-pointer text-lg text-[color:var(--color-ink)]">
             {language.name}{' '}
-            <span className="font-normal text-slate-400">
+            <span className="legend text-[color:var(--color-legend-dim)]">
               · {clips.length} recordings · {speakers.length} speakers
             </span>
           </summary>
           <ul className="mt-2 space-y-3">
             {speakers.map(({ speaker, clips: speakerClips }) => (
               <li key={speaker}>
-                <p className="text-xs font-semibold text-slate-200">
+                <p className="text-xs font-semibold text-[color:var(--color-ink)]">
                   {speaker}{' '}
-                  <span className="font-normal text-slate-400">
+                  <span className="font-normal text-[color:var(--color-legend-dim)]">
                     ({speakerClips.length} recordings)
                   </span>
                 </p>
@@ -119,7 +119,7 @@ export function Credits({ onBack }: { onBack: () => void }) {
                   {speakerClips.map((clip) => (
                     <li key={clip.id} className="text-[11px]">
                       <a
-                        className="text-sky-300 underline decoration-sky-300/40 underline-offset-2"
+                        className="text-[color:var(--color-signal)] underline decoration-[color:var(--color-signal)]/40 underline-offset-2"
                         href={clip.sourceUrl}
                         target="_blank"
                         rel="noreferrer"
@@ -127,11 +127,11 @@ export function Credits({ onBack }: { onBack: () => void }) {
                       >
                         {clip.word}
                       </a>
-                      <span className="text-slate-400">
+                      <span className="text-[color:var(--color-legend-dim)]">
                         {' '}
                         {clip.licenseUrl ? (
                           <a
-                            className="underline decoration-slate-500 underline-offset-2"
+                            className="underline decoration-[color:var(--color-hairline)] underline-offset-2"
                             href={clip.licenseUrl}
                             target="_blank"
                             rel="noreferrer"
@@ -151,7 +151,7 @@ export function Credits({ onBack }: { onBack: () => void }) {
         </details>
       ))}
 
-      <p className="text-center text-[11px] text-slate-400">
+      <p className="text-center text-[11px] text-[color:var(--color-legend-dim)]">
         Manifest generated {new Date(manifest.generatedAt).toLocaleDateString()}.
       </p>
     </div>

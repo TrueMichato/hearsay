@@ -262,8 +262,22 @@ body {
   }
 }
 
+/* The home dial never sits still, the way a real receiver drifts off station. */
+@keyframes drift {
+  0%,
+  100% {
+    transform: translateX(-4%);
+  }
+  50% {
+    transform: translateX(4%);
+  }
+}
+
 .anim-tune-in {
   animation: tune-in 0.42s var(--ease-dial) both;
+}
+.anim-drift {
+  animation: drift 9s ease-in-out infinite;
 }
 .anim-needle {
   animation: needle-settle 1.1s var(--ease-dial) both;

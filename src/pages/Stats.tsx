@@ -27,7 +27,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
   if (!profile || profile.totalRounds === 0) {
     return (
       <Shell onBack={onBack}>
-        <p className="mt-8 text-center text-sm text-slate-400">
+        <p className="mt-8 text-center text-sm text-[color:var(--color-legend)]">
           No rounds yet. Play one and your stats will appear here.
         </p>
       </Shell>
@@ -55,11 +55,11 @@ export function Stats({ onBack }: { onBack: () => void }) {
               </caption>
               <thead>
                 <tr>
-                  <th scope="col" className="p-1 text-left font-normal text-slate-400">
+                  <th scope="col" className="legend p-1 text-left text-[color:var(--color-legend-dim)]">
                     heard ↓ said →
                   </th>
                   {matrix.languages.map((id) => (
-                    <th key={id} scope="col" className="p-1 font-semibold text-slate-300">
+                    <th key={id} scope="col" className="legend p-1 text-[color:var(--color-legend)]">
                       <abbr title={nameOf(id)} className="no-underline">
                         {shortOf(id)}
                       </abbr>
@@ -70,7 +70,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
               <tbody>
                 {matrix.languages.map((actual) => (
                   <tr key={actual}>
-                    <th scope="row" className="p-1 text-left font-semibold text-slate-300">
+                    <th scope="row" className="p-1 text-left text-xs font-semibold text-[color:var(--color-ink)]">
                       {nameOf(actual)}
                     </th>
                     {matrix.languages.map((guessed) => {
@@ -86,12 +86,12 @@ export function Stats({ onBack }: { onBack: () => void }) {
                           style={{
                             backgroundColor: rate
                               ? isDiagonal
-                                ? `rgb(74 222 128 / ${0.15 + rate * 0.55})`
-                                : `rgb(251 113 133 / ${0.15 + rate * 0.65})`
+                                ? `rgb(111 227 168 / ${0.12 + rate * 0.5})`
+                                : `rgb(255 91 43 / ${0.12 + rate * 0.6})`
                               : undefined,
                           }}
                         >
-                          <span className="tabular-nums">{cell?.count ?? 0}</span>
+                          <span className="readout">{cell?.count ?? 0}</span>
                           <span className="sr-only">
                             {` heard ${nameOf(actual)}, answered ${nameOf(guessed)}`}
                           </span>
@@ -105,12 +105,12 @@ export function Stats({ onBack }: { onBack: () => void }) {
           </div>
 
           {matrix.worstPairs.length > 0 && (
-            <ul className="mt-3 space-y-1 text-xs text-slate-300">
+            <ul className="mt-3 space-y-1 text-xs text-[color:var(--color-legend)]">
               {matrix.worstPairs.map((pair) => (
                 <li key={`${pair.actual}-${pair.guessed}`}>
-                  You call <strong className="text-slate-100">{nameOf(pair.actual)}</strong>{' '}
-                  <strong className="text-rose-300">{nameOf(pair.guessed)}</strong>{' '}
-                  <span className="tabular-nums">{Math.round(pair.rate * 100)}%</span> of the time.
+                  You call <strong className="text-[color:var(--color-ink)]">{nameOf(pair.actual)}</strong>{' '}
+                  <strong className="text-[color:var(--color-ember)]">{nameOf(pair.guessed)}</strong>{' '}
+                  <span className="readout">{Math.round(pair.rate * 100)}%</span> of the time.
                 </li>
               ))}
             </ul>
@@ -124,13 +124,13 @@ export function Stats({ onBack }: { onBack: () => void }) {
             {accuracies.map((row) => (
               <li key={row.language} className="flex items-center gap-2 text-xs">
                 <span className="w-24 shrink-0 truncate">{nameOf(row.language)}</span>
-                <span className="h-2 flex-1 overflow-hidden rounded-full bg-slate-700">
+                <span className="engrave h-2 flex-1 overflow-hidden rounded-full">
                   <span
-                    className="block h-full rounded-full bg-sky-400"
+                    className="block h-full rounded-full bg-[color:var(--color-signal)]"
                     style={{ width: `${row.accuracy * 100}%` }}
                   />
                 </span>
-                <span className="w-16 shrink-0 text-right tabular-nums text-slate-400">
+                <span className="readout w-16 shrink-0 text-right text-[color:var(--color-legend-dim)]">
                   {Math.round(row.accuracy * 100)}% ({row.total})
                 </span>
               </li>
@@ -151,7 +151,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
             {byDifficulty.map((row) => (
               <li key={row.difficulty} className="flex justify-between gap-2">
                 <span className="capitalize">{row.difficulty}</span>
-                <span className="tabular-nums text-slate-400">
+                <span className="readout text-[color:var(--color-legend-dim)]">
                   {row.rounds} rounds · avg {Math.round(row.meanScore)} · best {row.bestScore}
                 </span>
               </li>
@@ -166,7 +166,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
             {clues.map((row) => (
               <li key={row.clueId} className="flex justify-between gap-2">
                 <span>{row.clueId}</span>
-                <span className="tabular-nums text-slate-400">
+                <span className="readout text-[color:var(--color-legend-dim)]">
                   ×{row.timesBought} · {row.coinsSpent} coins
                 </span>
               </li>
@@ -180,7 +180,7 @@ export function Stats({ onBack }: { onBack: () => void }) {
         onClick={() => {
           if (confirm('Delete all local progress? This cannot be undone.')) void resetAllData();
         }}
-        className="mt-4 w-full rounded-xl border border-rose-500/40 py-2.5 text-xs font-semibold text-rose-300 hover:bg-rose-500/10"
+        className="legend mt-4 w-full rounded-lg border border-[color:var(--color-fault)]/40 py-2.5 text-[color:var(--color-fault)] hover:bg-[color:var(--color-fault)]/10"
       >
         Reset all local data
       </button>
@@ -212,9 +212,9 @@ function Sparkline({ points }: { points: number[] }) {
         role="img"
         aria-label={`Rolling accuracy moved from ${first}% to ${last}% over the last ${points.length} rounds.`}
       >
-        <path d={path} fill="none" stroke="#38bdf8" strokeWidth="2" strokeLinejoin="round" />
+        <path d={path} fill="none" stroke="var(--color-signal)" strokeWidth="2" strokeLinejoin="round" />
       </svg>
-      <figcaption className="text-[11px] text-slate-400">
+      <figcaption className="readout text-[11px] text-[color:var(--color-legend-dim)]">
         {first}% → {last}% over {points.length} rounds
       </figcaption>
     </figure>
@@ -223,16 +223,16 @@ function Sparkline({ points }: { points: number[] }) {
 
 function Shell({ children, onBack }: { children: React.ReactNode; onBack: () => void }) {
   return (
-    <div className="mx-auto w-full max-w-lg space-y-4 p-4 pb-10">
+    <div className="chassis grain mx-auto min-h-full w-full max-w-lg space-y-3 p-4 pb-10">
       <header className="flex items-center gap-2">
         <button
           type="button"
           onClick={onBack}
-          className="rounded-lg px-2 py-1 text-sm text-slate-300 hover:text-white"
+          className="legend panel rounded-lg px-3 py-2 text-[color:var(--color-legend)]"
         >
           ← Back
         </button>
-        <h1 className="text-lg font-bold">Your stats</h1>
+        <h1 className="nameplate text-2xl text-[color:var(--color-ink)]">Your log</h1>
       </header>
       {children}
     </div>
@@ -249,9 +249,9 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-2xl bg-slate-800/50 p-3">
-      <h2 className="text-sm font-bold">{title}</h2>
-      {hint && <p className="mt-0.5 mb-2 text-[11px] text-slate-400">{hint}</p>}
+    <section className="panel rounded-lg p-3">
+      <h2 className="legend text-[color:var(--color-signal)]">{title}</h2>
+      {hint && <p className="mt-1 mb-2 text-[11px] leading-relaxed text-[color:var(--color-legend)]">{hint}</p>}
       <div className={hint ? '' : 'mt-2'}>{children}</div>
     </section>
   );
@@ -267,9 +267,9 @@ function Stat({
   testId?: string;
 }) {
   return (
-    <div className="rounded-xl bg-slate-800/60 px-2 py-2 text-center">
-      <dt className="text-[11px] text-slate-400">{label}</dt>
-      <dd data-testid={testId} className="text-base font-bold tabular-nums">
+    <div className="well rounded-lg px-2 py-2 text-center">
+      <dt className="legend text-[color:var(--color-legend-dim)]">{label}</dt>
+      <dd data-testid={testId} className="readout text-base font-bold text-[color:var(--color-ink)]">
         {value}
       </dd>
     </div>

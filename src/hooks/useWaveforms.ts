@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { BoardTile } from '../game/types';
 
 /**
@@ -108,15 +108,23 @@ function summarise(buffer: AudioBuffer): number[] {
  * service-worker cache because `useBoardAudio` preloaded the same URLs.
  */
 export function useWaveforms(tiles: BoardTile[]): Record<string, Peaks> {
-  const [peaks, setPeaks] = useState<Record<string, Peaks>>({});
+  const [decoded, setDecoded] = useState<Record<string, Peaks>>({});
   const contextRef = useRef<AudioContext | null>(null);
+
+  // The fallback shape is derived during render rather than seeded into state,
+  // so a tile is never blank for even one frame and there is no extra render
+  // pass on mount. Decoded results are keyed by clip id, so a stale entry from
+  // a previous board is simply never looked up.
+  const peaks = useMemo(
+    () =>
+      Object.fromEntries(
+        tiles.map((tile) => [tile.id, decoded[tile.id] ?? fallbackPeaks(tile.id)]),
+      ) as Record<string, Peaks>,
+    [tiles, decoded],
+  );
 
   useEffect(() => {
     let cancelled = false;
-
-    // Seed every tile with its fallback immediately. Decoding then upgrades
-    // each one in place, so no tile is ever blank while decoding runs.
-    setPeaks(Object.fromEntries(tiles.map((t) => [t.id, fallbackPeaks(t.id)])));
 
     const AudioContextClass: typeof AudioContext | undefined =
       window.AudioContext ??
@@ -139,7 +147,7 @@ export function useWaveforms(tiles: BoardTile[]): Record<string, Peaks> {
           const decoded = await context.decodeAudioData(bytes);
           if (cancelled) return;
           const summary = summarise(decoded);
-          setPeaks((prev) => ({ ...prev, [tile.id]: summary }));
+          setDecoded((prev) => ({ ...prev, [tile.id]: summary }));
         } catch {
           // Keep the fallback shape. A missing waveform must never break a
           // round the player can otherwise hear perfectly well.
