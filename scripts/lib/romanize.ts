@@ -127,6 +127,85 @@ function romanizeHangul(word: string): string | null {
   return out;
 }
 
+
+// --- Devanagari -----------------------------------------------------------
+//
+// Devanagari is an *abugida*: each consonant letter carries an inherent /a/
+// unless a following vowel sign replaces it or a virama (्) cancels it. That
+// makes transliteration genuinely mechanical, unlike the scripts below, so an
+// honest romanization is derivable here without a pronunciation dictionary.
+
+const DEVA_CONSONANTS: Record<string, string> = {
+  क: 'k', ख: 'kh', ग: 'g', घ: 'gh', ङ: 'ṅ',
+  च: 'c', छ: 'ch', ज: 'j', झ: 'jh', ञ: 'ñ',
+  ट: 'ṭ', ठ: 'ṭh', ड: 'ḍ', ढ: 'ḍh', ण: 'ṇ',
+  त: 't', थ: 'th', द: 'd', ध: 'dh', न: 'n',
+  प: 'p', फ: 'ph', ब: 'b', भ: 'bh', म: 'm',
+  य: 'y', र: 'r', ल: 'l', व: 'v',
+  श: 'ś', ष: 'ṣ', स: 's', ह: 'h',
+  ळ: 'ḷ', क़: 'q', ख़: 'x', ग़: 'ġ', ज़: 'z', ड़: 'ṛ', ढ़: 'ṛh', फ़: 'f',
+};
+
+/** Independent vowel letters, used word-initially. */
+const DEVA_VOWELS: Record<string, string> = {
+  अ: 'a', आ: 'ā', इ: 'i', ई: 'ī', उ: 'u', ऊ: 'ū',
+  ऋ: 'ṛ', ए: 'e', ऐ: 'ai', ओ: 'o', औ: 'au', ऍ: 'ê', ऑ: 'ô',
+};
+
+/** Dependent vowel signs, which replace a consonant's inherent /a/. */
+const DEVA_MATRAS: Record<string, string> = {
+  'ा': 'ā', 'ि': 'i', 'ी': 'ī', 'ु': 'u', 'ू': 'ū',
+  'ृ': 'ṛ', 'े': 'e', 'ै': 'ai', 'ो': 'o', 'ौ': 'au', 'ॅ': 'ê', 'ॉ': 'ô',
+};
+
+const DEVA_SIGNS: Record<string, string> = {
+  'ं': 'ṃ', 'ः': 'ḥ', 'ँ': 'ṁ', '़': '',
+};
+
+const DEVA_VIRAMA = '\u094D';
+
+function romanizeDevanagari(word: string): string | null {
+  let out = '';
+  const chars = [...word.normalize('NFC')];
+
+  for (let i = 0; i < chars.length; i++) {
+    const c = chars[i];
+
+    if (DEVA_CONSONANTS[c] !== undefined) {
+      out += DEVA_CONSONANTS[c];
+      const next = chars[i + 1];
+      if (next === DEVA_VIRAMA) {
+        i++; // virama cancels the inherent vowel; emit nothing
+      } else if (next !== undefined && DEVA_MATRAS[next] !== undefined) {
+        out += DEVA_MATRAS[next];
+        i++;
+      } else if (next !== undefined && next === '\u093C') {
+        // nukta already folded into the composed consonant above
+      } else {
+        out += 'a'; // the inherent vowel
+      }
+      continue;
+    }
+
+    if (DEVA_VOWELS[c] !== undefined) {
+      out += DEVA_VOWELS[c];
+      continue;
+    }
+    if (DEVA_SIGNS[c] !== undefined) {
+      out += DEVA_SIGNS[c];
+      continue;
+    }
+    if (c === '-' || c === "'" || c === '\u2019') {
+      out += c;
+      continue;
+    }
+    // An unmapped character means the transliteration would be misleading.
+    return null;
+  }
+
+  return out.length > 0 ? out : null;
+}
+
 /**
  * Romanize `word` for `language`.
  * Returns `null` when no faithful deterministic transliteration exists, and for
@@ -142,5 +221,23 @@ export function romanize(word: string, language: string, script: ScriptFamily): 
       return romanizeKana(word);
     case 'hangul':
       return romanizeHangul(word);
+    case 'devanagari':
+      return romanizeDevanagari(word);
+
+    // The remaining scripts have no *faithful deterministic* transliteration,
+    // and returning a plausible-looking wrong one would be worse than returning
+    // nothing: romanization is sold to the player as a clue, so it has to be
+    // trustworthy.
+    //
+    //  - Arabic and Hebrew are abjads. Short vowels are simply not written, so
+    //    the same letters spell several different words and no algorithm can
+    //    recover the vowels without a dictionary or morphological analysis.
+    //  - Han characters encode meaning, not sound. Deriving pinyin needs a
+    //    character-to-reading dictionary, and many characters are polyphonic,
+    //    so the reading depends on the word rather than the character.
+    case 'arabic':
+    case 'hebrew':
+    case 'han':
+      return null;
   }
 }

@@ -5,7 +5,25 @@
  */
 
 /** Writing system, used to drive script-aware word-curation heuristics. */
-export type ScriptFamily = 'latin' | 'cyrillic' | 'japanese' | 'hangul';
+export type ScriptFamily =
+  | 'latin'
+  | 'cyrillic'
+  | 'japanese'
+  | 'hangul'
+  | 'arabic'
+  | 'hebrew'
+  | 'devanagari'
+  | 'han';
+
+/**
+ * How likely a general player is to be able to *name* the language.
+ *
+ * Distinct from `LanguageCluster`, which measures how confusable languages are
+ * with each other. The two are independent: Basque is acoustically unlike
+ * anything else in the corpus (easy by similarity) yet most players have never
+ * knowingly heard it (hard by familiarity). Easy difficulty needs both.
+ */
+export type Familiarity = 'household' | 'known' | 'obscure';
 
 /**
  * A group of languages that sound similar to an untrained ear. Board generation
@@ -30,11 +48,42 @@ export interface LanguageMeta {
   script: ScriptFamily;
   /** Cluster id this language belongs to. */
   cluster: string;
+  /** How recognisable this language is to a general player. */
+  familiarity: Familiarity;
   /** Stable Tailwind-compatible colour used by the `colorCode` clue. */
   color: string;
 }
 
-/** A single playable recording: one word, one speaker, one audio file. */
+/**
+ * One source recording that contributes to a tile.
+ *
+ * A tile is assembled from several of these, and because Lingua Libre licences
+ * vary *per file* (the corpus mixes CC0, CC BY 4.0 and CC BY-SA 4.0), the
+ * attribution for each constituent has to survive assembly individually. It
+ * cannot be collapsed to a single licence line without breaking the terms the
+ * BY and BY-SA files are supplied under.
+ */
+export interface ClipSource {
+  /** The word as written in its native script. */
+  word: string;
+  /** Latin transliteration where derivable, else `null`. */
+  romanization: string | null;
+  /** Speaker's Lingua Libre username. */
+  speaker: string;
+  /** Short licence name exactly as Commons reports it. */
+  license: string;
+  /** Canonical URL of the licence deed. */
+  licenseUrl: string | null;
+  /** Commons file description page — the required attribution link. */
+  sourceUrl: string;
+  /** Duration of this word within the assembled tile, in seconds. */
+  duration: number;
+}
+
+/**
+ * A single playable tile: a short utterance assembled from several words
+ * spoken by one speaker in one language.
+ */
 export interface ClipMeta {
   /**
    * Opaque, stable id — a truncated hash of language+word+speaker.
@@ -47,7 +96,10 @@ export interface ClipMeta {
   id: string;
   /** App language id (see `LanguageMeta.id`). */
   language: string;
-  /** The word as written in its native script. Revealed only via a clue. */
+  /**
+   * The utterance as written, constituent words joined by spaces. Revealed only
+   * via a clue. Kept as a single string so the reveal clue renders unchanged.
+   */
   word: string;
   /**
    * Latin transliteration where algorithmically derivable, else `null`.
@@ -58,9 +110,19 @@ export interface ClipMeta {
   audio: string;
   /** Clip duration in seconds, measured after transcoding. */
   duration: number;
-  /** Speaker's Lingua Libre username. Drives per-language speaker diversity. */
+  /** Speaker's Lingua Libre username. Shared by every source in the tile. */
   speaker: string;
-  /** Short licence name exactly as Commons reports it, e.g. `CC0`, `CC BY-SA 4.0`. */
+  /**
+   * Per-word attribution for every source recording in this tile, in order.
+   * The credits page must render all of them.
+   */
+  sources: ClipSource[];
+  /**
+   * Effective licence of the assembled tile: the most restrictive licence among
+   * `sources`. A composite of a CC0 word and a CC BY-SA word is CC BY-SA
+   * overall, so this is the licence the tile as a whole is offered under.
+   * Per-file detail lives in `sources`.
+   */
   license: string;
   /** Canonical URL of the licence deed. */
   licenseUrl: string | null;

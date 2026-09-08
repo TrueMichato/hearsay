@@ -89,6 +89,8 @@ export type RejectionReason =
   | 'katakana-loanword'
   | 'duplicate-word'
   | 'speaker-quota'
+  | 'speaker-too-few-words'
+  | 'tile-too-short'
   | 'bad-duration'
   | 'download-or-transcode-failed';
 
@@ -102,13 +104,20 @@ const reject = (reason: RejectionReason): CurationVerdict => ({ ok: false, reaso
 
 // --- Unicode block probes -------------------------------------------------
 const RE_LATIN_LETTER = /[A-Za-z]/;
-const RE_DIGIT = /[0-9\u0660-\u0669]/;
+const RE_DIGIT = /[0-9\u0660-\u0669\u06F0-\u06F9\u0966-\u096F]/;
 const RE_WHITESPACE = /\s/;
 const RE_HIRAGANA = /[\u3041-\u309F]/;
 const RE_KATAKANA = /[\u30A0-\u30FF\uFF66-\uFF9F]/;
 const RE_KANJI = /[\u4E00-\u9FFF\u3400-\u4DBF]/;
 const RE_HANGUL = /[\uAC00-\uD7A3\u1100-\u11FF\u3130-\u318F]/;
 const RE_CYRILLIC = /[\u0400-\u04FF]/;
+const RE_ARABIC = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF]/;
+const RE_HEBREW = /[\u0590-\u05FF\uFB1D-\uFB4F]/;
+const RE_DEVANAGARI = /[\u0900-\u097F]/;
+/** Combining marks that carry vowels rather than consonants. */
+const RE_ARABIC_HARAKAT = /[\u064B-\u0652\u0670]/;
+const RE_HEBREW_NIQQUD = /[\u0591-\u05C7]/;
+const RE_DEVANAGARI_VIRAMA = /[\u094D]/;
 
 /**
  * Characters allowed *in addition* to the script's own letters.
@@ -133,6 +142,69 @@ function matchesScript(word: string, script: ScriptFamily): boolean {
       return chars.every((c) => RE_HIRAGANA.test(c) || RE_KATAKANA.test(c) || RE_KANJI.test(c));
     case 'hangul':
       return chars.every((c) => RE_HANGUL.test(c));
+    case 'arabic':
+      return chars.every((c) => RE_ARABIC.test(c));
+    case 'hebrew':
+      return chars.every((c) => RE_HEBREW.test(c));
+    case 'devanagari':
+      return chars.every((c) => RE_DEVANAGARI.test(c));
+    case 'han':
+      return chars.every((c) => RE_KANJI.test(c));
+  }
+}
+
+/**
+ * Approximate the number of syllables in a word.
+ *
+ * This is a heuristic, not linguistics, and it only has to be good enough to
+ * *rank* candidates. It is used to prefer longer words when assembling tiles:
+ * three monosyllables give the ear almost nothing to work with, which is the
+ * problem composite tiles exist to solve in the first place, so a tile built
+ * from "cat, dog, run" would reintroduce it at a larger scale.
+ *
+ * Each script needs its own rule because the relationship between characters
+ * and syllables differs wildly:
+ *  - Alphabetic scripts write vowels, so vowel *groups* approximate syllables.
+ *  - Han characters are one syllable each, essentially exactly.
+ *  - Japanese kana are one mora each; kanji are 1-3 and cannot be counted.
+ *  - Hangul blocks are one syllable each, exactly.
+ *  - Arabic and Hebrew usually omit short vowels, so length is the only proxy
+ *    available; consonant count divided by two is the standard rough estimate.
+ */
+export function estimateSyllables(word: string, script: ScriptFamily): number {
+  const chars = [...word].filter((c) => !RE_ALLOWED_PUNCT.test(c));
+  switch (script) {
+    case 'latin':
+    case 'cyrillic': {
+      const groups = word
+        .toLowerCase()
+        .match(/[aeiouyàâäáãåæèéêëìíîïòóôöõøùúûüÿœ\u0430\u0435\u0451\u0438\u0456\u043E\u0443\u044B\u044D\u044E\u044F]+/gu);
+      return Math.max(1, groups?.length ?? 1);
+    }
+    case 'han':
+      return chars.length;
+    case 'hangul':
+      return chars.filter((c) => /[\uAC00-\uD7A3]/.test(c)).length || 1;
+    case 'japanese':
+      // Kana are one mora each; a kanji is worth ~2 on average.
+      return chars.reduce((n, c) => n + (RE_KANJI.test(c) ? 2 : 1), 0);
+    case 'devanagari': {
+      // Every consonant carries an inherent vowel unless a virama kills it.
+      const consonants = chars.filter((c) => /[\u0915-\u0939\u0958-\u095F]/.test(c)).length;
+      const independentVowels = chars.filter((c) => /[\u0905-\u0914]/.test(c)).length;
+      const viramas = chars.filter((c) => RE_DEVANAGARI_VIRAMA.test(c)).length;
+      return Math.max(1, consonants + independentVowels - viramas);
+    }
+    case 'arabic':
+    case 'hebrew': {
+      const marks = chars.filter((c) =>
+        script === 'arabic' ? RE_ARABIC_HARAKAT.test(c) : RE_HEBREW_NIQQUD.test(c),
+      ).length;
+      // If the text is vocalised, the marks are the best signal we have.
+      if (marks > 0) return Math.max(1, marks);
+      const consonants = chars.length - marks;
+      return Math.max(1, Math.round(consonants / 2));
+    }
   }
 }
 
@@ -148,6 +220,17 @@ function lengthBounds(word: string, script: ScriptFamily): [number, number] {
       return [RE_KANJI.test(word) ? 1 : 2, 6];
     case 'hangul':
       return [2, 6];
+    case 'han':
+      // Chinese words are typically one or two characters; beyond four is
+      // almost always a phrase or an idiom rather than a word.
+      return [1, 4];
+    case 'arabic':
+    case 'hebrew':
+      // Both write short vowels sparsely, so words are consonant-dense and
+      // shorter on the page than their pronunciation suggests.
+      return [2, 12];
+    case 'devanagari':
+      return [2, 14];
     default:
       return [3, 14];
   }
@@ -232,6 +315,7 @@ export function selectWithSpeakerDiversity<T extends { speaker: string; word: st
   target: number,
   maxPerSpeaker: number,
   tally: Map<RejectionReason, number>,
+  blockSize = 1,
 ): T[] {
   const bySpeaker = new Map<string, T[]>();
   const seenWords = new Set<string>();
@@ -258,15 +342,23 @@ export function selectWithSpeakerDiversity<T extends { speaker: string; word: st
     progress = false;
     for (const queue of queues) {
       if (out.length >= target) break;
-      const next = queue.shift();
-      if (!next) continue;
-      const used = taken.get(next.speaker) ?? 0;
-      if (used >= maxPerSpeaker) {
+      // Take a whole block from one speaker at a time.
+      //
+      // Taking a *single* word per speaker per pass looks like better
+      // diversity, and for single-word clips it was. For composite tiles it is
+      // actively wrong: a tile needs `blockSize` words from one voice, so
+      // spreading 108 words evenly over 40 speakers gives almost everyone two
+      // words and almost nobody the three they need. That is precisely how a
+      // corpus of 34,000 Russian recordings collapsed to five usable speakers.
+      if (queue.length < blockSize) continue;
+      const used = taken.get(queue[0].speaker) ?? 0;
+      if (used + blockSize > maxPerSpeaker) {
         tally.set('speaker-quota', (tally.get('speaker-quota') ?? 0) + 1);
         continue;
       }
-      taken.set(next.speaker, used + 1);
-      out.push(next);
+      const block = queue.splice(0, blockSize);
+      taken.set(block[0].speaker, used + blockSize);
+      out.push(...block);
       progress = true;
     }
   }
