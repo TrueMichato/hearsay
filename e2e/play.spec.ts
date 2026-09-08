@@ -177,13 +177,24 @@ test('stats persist across a reload', async ({ page }) => {
   expect(Number(await rounds.textContent())).toBeGreaterThan(0);
 });
 
-test('credits carry per-clip licence and attribution', async ({ page }) => {
+test('credits carry per-recording licence and attribution', async ({ page }) => {
   await page.goto('/#/credits');
   await expect(page.getByRole('heading', { name: /Credits/ })).toBeVisible();
 
   // CC BY and CC BY-SA both require crediting the author and linking the
   // licence, so this is a legal requirement rather than a nicety.
-  await page.getByText('Spanish', { exact: false }).first().click();
-  await expect(page.locator('a[href*="commons.wikimedia.org/wiki/File:"]').first()).toBeVisible();
-  await expect(page.locator('a[href*="creativecommons.org"]').first()).toBeVisible();
+  const spanish = page.locator('details', { has: page.getByText('Spanish', { exact: false }) });
+  await spanish.locator('summary').click();
+
+  await expect(
+    spanish.locator('a[href*="commons.wikimedia.org/wiki/File:"]').first(),
+  ).toBeVisible();
+  await expect(spanish.locator('a[href*="creativecommons.org"]').first()).toBeVisible();
+
+  // A tile is assembled from three separate Commons files, and each one carries
+  // its own author and licence. Crediting the tile rather than its parts would
+  // drop two recordings in three, so assert the page lists every source and not
+  // one link per tile. Spanish ships 20 tiles, hence 60 recordings.
+  const fileLinks = spanish.locator('a[href*="commons.wikimedia.org/wiki/File:"]');
+  expect(await fileLinks.count()).toBeGreaterThanOrEqual(60);
 });

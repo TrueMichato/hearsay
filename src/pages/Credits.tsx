@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import manifestJson from '../content/manifest.json';
-import type { ContentManifest } from '../content/types';
+import type { ClipSource, ContentManifest } from '../content/types';
 import { BRANDING } from '../config/branding';
 
 const manifest = manifestJson as ContentManifest;
@@ -8,38 +8,53 @@ const manifest = manifestJson as ContentManifest;
 /**
  * Attribution page.
  *
- * Every clip in the manifest carries its own licence — the corpus mixes CC0,
- * CC BY 4.0 and CC BY-SA 4.0. CC BY and CC BY-SA both *require* crediting the
- * author and linking the licence, so this page is a legal obligation, not a
- * courtesy. Clips are grouped by language then speaker to stay readable, but
- * every individual recording keeps a link to its Commons file page.
+ * Every recording carries its own licence — the corpus mixes CC0, CC BY 4.0 and
+ * CC BY-SA 4.0. CC BY and CC BY-SA both *require* crediting the author and
+ * linking the licence, so this page is a legal obligation, not a courtesy.
+ *
+ * A tile is an utterance assembled from three separate Commons files, so the
+ * unit of attribution is `clip.sources[]`, never the tile. Crediting the tile
+ * would silently drop two recordings out of every three and would misreport the
+ * licence of the two it dropped, since a tile is filed under the most
+ * restrictive licence among its parts. Recordings are grouped by language then
+ * speaker to stay readable, but each one keeps its own link and its own
+ * licence.
  */
 export function Credits({ onBack }: { onBack: () => void }) {
   const groups = useMemo(() => {
     return manifest.languages
       .map((language) => {
-        const clips = manifest.clips.filter((c) => c.language === language.id);
-        const bySpeaker = new Map<string, typeof clips>();
-        for (const clip of clips) {
-          const list = bySpeaker.get(clip.speaker) ?? [];
-          list.push(clip);
-          bySpeaker.set(clip.speaker, list);
+        const sources = manifest.clips
+          .filter((c) => c.language === language.id)
+          .flatMap((c) => c.sources);
+        const bySpeaker = new Map<string, ClipSource[]>();
+        for (const source of sources) {
+          const list = bySpeaker.get(source.speaker) ?? [];
+          list.push(source);
+          bySpeaker.set(source.speaker, list);
         }
         return {
           language,
-          clips,
+          sources,
           speakers: [...bySpeaker.entries()]
-            .map(([speaker, list]) => ({ speaker, clips: list }))
-            .sort((a, b) => b.clips.length - a.clips.length),
+            .map(([speaker, list]) => ({ speaker, sources: list }))
+            .sort((a, b) => b.sources.length - a.sources.length),
         };
       })
-      .filter((g) => g.clips.length > 0);
+      .filter((g) => g.sources.length > 0);
   }, []);
+
+  const totalSources = useMemo(
+    () => manifest.clips.reduce((sum, clip) => sum + clip.sources.length, 0),
+    [],
+  );
 
   const licenceTally = useMemo(() => {
     const counts = new Map<string, number>();
     for (const clip of manifest.clips) {
-      counts.set(clip.license, (counts.get(clip.license) ?? 0) + 1);
+      for (const source of clip.sources) {
+        counts.set(source.license, (counts.get(source.license) ?? 0) + 1);
+      }
     }
     return [...counts.entries()].sort((a, b) => b[1] - a[1]);
   }, []);
@@ -80,8 +95,10 @@ export function Credits({ onBack }: { onBack: () => void }) {
           .
         </p>
         <p>
-          {manifest.clips.length} recordings across {groups.length} languages. Audio was trimmed and
-          loudness-normalised, then re-encoded to Opus; the words themselves are unaltered.
+          {totalSources} recordings across {groups.length} languages, assembled into{' '}
+          {manifest.clips.length} tiles of three words each. Audio was trimmed, loudness-normalised
+          and joined with a short pause, then re-encoded to Opus; the words themselves are
+          unaltered.
         </p>
         <ul className="readout text-xs text-[color:var(--color-legend-dim)]">
           {licenceTally.map(([license, count]) => (
@@ -98,48 +115,48 @@ export function Credits({ onBack }: { onBack: () => void }) {
         </p>
       </section>
 
-      {groups.map(({ language, clips, speakers }) => (
+      {groups.map(({ language, sources, speakers }) => (
         <details key={language.id} className="panel rounded-lg p-3">
           <summary className="nameplate cursor-pointer text-lg text-[color:var(--color-ink)]">
             {language.name}{' '}
             <span className="legend text-[color:var(--color-legend-dim)]">
-              · {clips.length} recordings · {speakers.length} speakers
+              · {sources.length} recordings · {speakers.length} speakers
             </span>
           </summary>
           <ul className="mt-2 space-y-3">
-            {speakers.map(({ speaker, clips: speakerClips }) => (
+            {speakers.map(({ speaker, sources: speakerSources }) => (
               <li key={speaker}>
                 <p className="text-xs font-semibold text-[color:var(--color-ink)]">
                   {speaker}{' '}
                   <span className="font-normal text-[color:var(--color-legend-dim)]">
-                    ({speakerClips.length} recordings)
+                    ({speakerSources.length} recordings)
                   </span>
                 </p>
                 <ul className="mt-1 flex flex-wrap gap-x-2 gap-y-1">
-                  {speakerClips.map((clip) => (
-                    <li key={clip.id} className="text-[11px]">
+                  {speakerSources.map((source) => (
+                    <li key={source.sourceUrl} className="text-[11px]">
                       <a
                         className="text-[color:var(--color-signal)] underline decoration-[color:var(--color-signal)]/40 underline-offset-2"
-                        href={clip.sourceUrl}
+                        href={source.sourceUrl}
                         target="_blank"
                         rel="noreferrer"
-                        title={`${clip.word} — ${clip.license}`}
+                        title={`${source.word} — ${source.license}`}
                       >
-                        {clip.word}
+                        {source.word}
                       </a>
                       <span className="text-[color:var(--color-legend-dim)]">
                         {' '}
-                        {clip.licenseUrl ? (
+                        {source.licenseUrl ? (
                           <a
                             className="underline decoration-[color:var(--color-hairline)] underline-offset-2"
-                            href={clip.licenseUrl}
+                            href={source.licenseUrl}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            {clip.license}
+                            {source.license}
                           </a>
                         ) : (
-                          clip.license
+                          source.license
                         )}
                       </span>
                     </li>
