@@ -122,3 +122,30 @@ test('the manual advances on what the player actually does', async ({ page }) =>
   await page.getByTestId(`bucket-${round.buckets[0].id}`).click();
   await expect(coach).toContainText('Two at once');
 });
+
+/**
+ * The repository is public and hash links get shared, so a first-time visitor
+ * can easily arrive at `#/play/easy` without ever seeing the home screen.
+ *
+ * Being new is a fact about the player, stored in IndexedDB — not a flag in the
+ * URL. This asserts the manual is decided from that fact, so it appears however
+ * the player arrives, and still never re-appears for someone who has seen it.
+ *
+ * Proven to fail: restoring `tutorial={route.tutorial}` in src/App.tsx (deciding
+ * first run from the route alone) made the deep-link case fail — the coach was
+ * hidden for a player with a completely empty database.
+ */
+test('a deep link teaches a new player and leaves a veteran alone', async ({ page }) => {
+  // Straight to a board, no home screen, empty database.
+  await page.goto('/#/play/easy/deep-link-seed');
+  await expect(page.getByTestId('submit-round')).toBeVisible();
+  await expect(page.getByTestId('coach')).toBeVisible();
+
+  await page.getByTestId('skip-manual').click();
+  await expect(page.getByTestId('coach')).toBeHidden();
+
+  // Same deep link, same player, now a veteran: no unsolicited manual.
+  await page.goto('/#/play/medium/deep-link-seed');
+  await expect(page.getByTestId('submit-round')).toBeVisible();
+  await expect(page.getByTestId('coach')).toBeHidden();
+});

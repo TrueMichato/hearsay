@@ -69,13 +69,25 @@ export function App() {
 
   switch (route.name) {
     case 'play':
+      // Whether this is someone's first round is a fact about the player, not
+      // about the URL they arrived on. The repository is public and links get
+      // shared, so a first-time visitor can land on `#/play/easy` directly and
+      // must still be taught the game. The `manual` flag in the URL therefore
+      // only *forces* the manual open (the `?` button, and re-opening it later);
+      // a genuine first run opens it on its own however the player got here.
+      //
+      // The profile read is asynchronous, so we wait one beat for it rather
+      // than rendering the board and flipping the manual on afterwards. Play
+      // reads `tutorial` once, when it mounts, and remounting it to correct the
+      // decision would deal a different board out from under the player.
+      if (profile === undefined) return <div className="chassis min-h-dvh" />;
       return (
         <Play
           // Remounting on difficulty change resets all round state cleanly.
           key={`${route.difficulty}:${route.seed ?? ''}:${route.tutorial ? 'manual' : ''}`}
           difficulty={route.difficulty}
           initialSeed={route.seed}
-          tutorial={route.tutorial}
+          tutorial={route.tutorial || firstRun}
           onExit={goHome}
         />
       );
@@ -86,9 +98,9 @@ export function App() {
     default:
       return (
         <Home
-          onStart={(difficulty) =>
-            go(`/play/${difficulty}${firstRun ? '//manual' : ''}`)
-          }
+          // No `manual` flag needed: the play route works out a first run for
+          // itself, so starting from home and deep-linking behave identically.
+          onStart={(difficulty) => go(`/play/${difficulty}`)}
           onManual={() => go('/play/easy//manual')}
           onStats={() => go('/stats')}
           onCredits={() => go('/credits')}
