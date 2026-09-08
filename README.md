@@ -7,6 +7,9 @@ them by language. The languages are chosen to sound alike — Spanish against
 Portuguese against Italian, Russian against Polish against Ukrainian, Japanese
 against Korean — so guessing from a stray familiar word will not save you.
 
+**▶ Play it: <https://truemichato.github.io/hearsay/>** — works on a phone, and
+works offline once you have opened it.
+
 ---
 
 ## If you are new to any of this
@@ -324,6 +327,60 @@ code was right; the test was not proving what it claimed. A second test now runs
 the same policy against a deliberately thin two-cluster corpus, where the
 constraint has to bite. **A mutation that survives is a question, not a
 verdict.**
+
+---
+
+## Deployment
+
+The live site is a GitHub **project page**, served from
+`https://truemichato.github.io/hearsay/` rather than a domain root. That
+subpath is the whole difficulty, and it fails in an unhelpful way: the HTML
+still loads, so a deploy looks successful, while every asset 404s and the
+player gets a board that renders and makes no sound.
+
+Vite's `base` therefore comes from a `BASE_PATH` environment variable,
+defaulting to `/` so `npm run dev` and `npm run preview` keep working at the
+root. Vite rewrites `index.html` and asset URLs itself, but three things do not
+follow `base` automatically:
+
+- **`navigateFallback`** must carry the base. Workbox matches it against a real
+  URL, so a bare `index.html` looks at the domain root and the offline
+  navigation fallback silently never fires.
+- **`scope` and `start_url`** in the web app manifest must sit under the base.
+  A scope of `/` on a project page claims the whole `github.io` domain, which
+  the browser rejects, making the app uninstallable.
+- **Audio** resolves through `import.meta.env.BASE_URL`, which is why clips
+  survive the move. The Workbox precache manifest is relative to the service
+  worker at `/hearsay/sw.js`, so it resolves correctly on its own.
+
+Hash routing (`#/play/easy/<seed>`) was already the right choice here: Pages has
+no server-side rewrite, so a path-based route would 404 on a cold deep link.
+
+`.github/workflows/deploy.yml` runs typecheck, lint, unit tests and Playwright
+in a job the deploy `needs`, so a broken build cannot ship. `BASE_PATH` is
+derived from `GITHUB_REPOSITORY` rather than hardcoded, so a rename or a fork
+deploys correctly with no edit, and a guard step fails the build if
+`dist/index.html` did not pick the base up.
+
+### Verifying a deploy
+
+A green checkmark is not evidence the game works.
+
+```bash
+SITE=https://truemichato.github.io/hearsay/ npm run verify:deploy
+```
+
+Against the live site this loads a cold deep link at a 390×844 mobile viewport
+and asserts that every clip fetches 200/206, that tiles genuinely decode and
+play, that a full round scores exactly, that the service worker registers under
+the right scope, that stats survive a reload, that the app works offline, that
+tap targets clear 44 px, and that no language code appears in tile DOM or audio
+URLs.
+
+It was broken once to confirm it detects the subpath trap. Removing `BASE_URL`
+from `useBoardAudio` produced `16 requests 404d` and `only 0/16 tiles played`
+— while the score was still a correct `+1280`. That is exactly why "the page
+rendered" cannot be the test.
 
 ---
 
