@@ -36,7 +36,14 @@ export interface LanguageMeta {
 
 /** A single playable recording: one word, one speaker, one audio file. */
 export interface ClipMeta {
-  /** Stable id, safe for filenames and IndexedDB keys. */
+  /**
+   * Opaque, stable id — a truncated hash of language+word+speaker.
+   *
+   * Deliberately carries no language signal. This id reaches the DOM as a test
+   * hook and the network as a filename, so an id like `ita-0013` would hand a
+   * devtools user every answer for free and make the reveal clue pointless.
+   * See `scripts/lib/clip-id.ts`.
+   */
   id: string;
   /** App language id (see `LanguageMeta.id`). */
   language: string;
@@ -47,7 +54,7 @@ export interface ClipMeta {
    * Never a translation — this game is about sound, not meaning.
    */
   romanization: string | null;
-  /** Audio path relative to the site root, e.g. `/audio/spa/spa-0001.opus`. */
+  /** Audio path relative to the site root, opaque and language-free, e.g. `audio/8f3ad1c05b72.opus`. */
   audio: string;
   /** Clip duration in seconds, measured after transcoding. */
   duration: number;
