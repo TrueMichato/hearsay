@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import manifest from '../content/manifest.json';
 import type { ContentManifest } from '../content/types';
-import { generateRound, maxLanguagesFor, partitionTiles } from './board';
+import { generateRound, partitionTiles } from './board';
+import { maxLanguagesFor } from './language-policy';
 import { createRng } from './rng';
 import { BOARD_SIZE, type Difficulty } from './types';
 
