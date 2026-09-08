@@ -89,11 +89,15 @@ export function TunerStrip({
         </span>
       </div>
 
-      <div className="relative z-10 mt-2 flex items-center gap-2">
-        <p aria-live="polite" className="legend min-w-0 flex-1 truncate normal-case">
-          {status}
-        </p>
+      {/* The status owns a full-width line of its own. Sharing the row with the
+          buttons truncated it to "Press a station to he…", which turned the one
+          sentence explaining the whole interaction into an ellipsis. */}
+      <p aria-live="polite" className="legend relative z-10 mt-1.5 normal-case">
+        {status}
+      </p>
 
+      <div className="relative z-10 mt-1.5 flex items-center gap-2">
+        <span className="flex-1" />
         <button
           type="button"
           onClick={onReplay}

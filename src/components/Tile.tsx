@@ -37,6 +37,19 @@ export interface TileProps {
 }
 
 /**
+ * Shortens a group label to a tag that fits a tile corner.
+ *
+ * Truncating the front of the string breaks the moment groups are unnamed:
+ * "Group A", "Group B" and "Group C" all collapse to "Gro", so every filed tile
+ * on Medium and Hard would carry an identical badge. Taking the last word first
+ * gives "A", "B" and "C" there, and still gives "Bas" for Basque.
+ */
+function shortTag(label: string): string {
+  const last = label.trim().split(/\s+/).at(-1) ?? label;
+  return last.length > 3 ? last.slice(0, 3) : last;
+}
+
+/**
  * One station on the band.
  *
  * ## Pressing a tile only ever listens
@@ -161,7 +174,7 @@ export const Tile = memo(function Tile({
             color: clueColor ? '#140e07' : 'var(--color-ink)',
           }}
         >
-          {assignedLabel.length > 3 ? assignedLabel.slice(0, 3) : assignedLabel}
+          {shortTag(assignedLabel)}
         </span>
       )}
 

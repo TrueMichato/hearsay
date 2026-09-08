@@ -339,6 +339,14 @@ function RoundView({
           <span className="readout text-sm font-bold text-[color:var(--color-signal)]">{coins}</span>
         </button>
       </header>
+      {manualOpen && (
+        <Coach
+          step={shownStep}
+          onNext={() => setStep(shownStep + 1)}
+          onSkip={() => setStep(TUTORIAL_STEPS.length)}
+        />
+      )}
+
 
       <BandMeter placed={placed} total={total} heard={audio.heard.size} />
 
@@ -437,14 +445,6 @@ function RoundView({
         onClose={() => setShopOpen(false)}
       />
 
-      {manualOpen && (
-        <Coach
-          step={shownStep}
-          onNext={() => setStep(shownStep + 1)}
-          onSkip={() => setStep(TUTORIAL_STEPS.length)}
-        />
-      )}
-
       {result && (
         <ResultsPanel
           round={round}
@@ -469,7 +469,13 @@ function RoundView({
 function BandMeter({ placed, total, heard }: { placed: number; total: number; heard: number }) {
   return (
     <div className="flex items-center gap-2.5">
-      <span className="legend shrink-0">Filed</span>
+      <span className="legend shrink-0" aria-hidden="true">
+        Filed
+      </span>
+      {/* One segment per station. Filed segments are lit; heard-but-unfiled
+          ones only smoulder, which has to be a large enough gap to read at
+          3px tall — an earlier version used a slightly deeper amber and looked
+          identical to "filed" next to a counter that said none were. */}
       <span
         aria-hidden="true"
         className="engrave flex h-3.5 flex-1 items-center gap-[2px] rounded-sm px-1"
@@ -483,14 +489,21 @@ function BandMeter({ placed, total, heard }: { placed: number; total: number; he
                 i < placed
                   ? 'var(--color-signal)'
                   : i < heard
-                    ? 'var(--color-signal-deep)'
-                    : 'rgb(255 226 178 / 0.09)',
+                    ? 'rgb(255 167 36 / 0.26)'
+                    : 'rgb(255 226 178 / 0.07)',
+              boxShadow: i < placed ? '0 0 5px -1px var(--color-signal-deep)' : undefined,
             }}
           />
         ))}
       </span>
-      <span className="readout shrink-0 text-xs font-bold text-[color:var(--color-signal)]">
+      <span
+        aria-hidden="true"
+        className="readout shrink-0 text-xs font-bold text-[color:var(--color-signal)]"
+      >
         {placed}/{total}
+      </span>
+      <span role="status" className="sr-only">
+        {placed} of {total} stations filed, {heard} heard.
       </span>
     </div>
   );

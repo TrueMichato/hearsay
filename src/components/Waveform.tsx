@@ -65,7 +65,11 @@ export const Waveform = memo(function Waveform({
             strokeOpacity="0.75"
           />
           {Array.from({ length: BAR_COUNT }, (_, i) => {
-            const h = i % 3 === 0 ? 1.6 : 0.8;
+            // Irregular on purpose. An even `i % 3` pattern read as a dotted
+            // rule, which looks like a divider rather than like hiss; scattered
+            // heights read as band noise, which is what an untuned station is.
+            const n = Math.abs(Math.sin(i * 91.7) * 43758.5453) % 1;
+            const h = 0.9 + n * 2.6;
             return (
               <rect
                 key={i}
@@ -74,7 +78,7 @@ export const Waveform = memo(function Waveform({
                 width="2"
                 height={h}
                 fill="var(--color-legend-dim)"
-                opacity="0.5"
+                opacity={0.4 + n * 0.35}
               />
             );
           })}

@@ -38,7 +38,7 @@ export function Home({
     <div className="chassis grain mx-auto flex min-h-full w-full max-w-lg flex-col gap-4 p-4">
       <DialPlate />
 
-      <nav aria-label="Difficulty" className="flex flex-col gap-2.5">
+      <nav aria-label="Difficulty" className="flex flex-1 flex-col gap-2.5">
         <p className="legend">Select a band</p>
         {BANDS.map((band, i) => (
           <button
@@ -46,8 +46,9 @@ export function Home({
             type="button"
             onClick={() => onStart(band.difficulty)}
             data-testid={`start-${band.difficulty}`}
-            className="panel group relative flex items-center gap-3.5 overflow-hidden rounded-lg p-3.5 text-left transition-transform active:scale-[0.99]"
+            className="panel group relative flex flex-1 flex-col justify-center gap-2 overflow-hidden rounded-lg p-3.5 text-left transition-transform active:scale-[0.99]"
           >
+            <span className="flex items-center gap-3.5">
             <span
               aria-hidden="true"
               className="readout engrave grid h-11 w-11 shrink-0 place-items-center rounded-md text-lg font-bold text-[color:var(--color-signal)] transition-shadow group-hover:shadow-[inset_0_0_0_1.5px_var(--color-signal),0_0_16px_-2px_var(--color-signal-deep)]"
@@ -62,6 +63,8 @@ export function Home({
                 {band.blurb}
               </span>
             </span>
+            </span>
+            <BandSignal noise={i} />
           </button>
         ))}
       </nav>
@@ -176,6 +179,53 @@ function DialPlate() {
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * A strip of signal under each band, getting noisier as the band gets harder.
+ *
+ * It does two jobs at once. It fills space the old home screen simply left
+ * empty, and it says something true before the player has read a word: Easy is
+ * a clean carrier you can pick out, Hard is a mess you have to work through.
+ */
+function BandSignal({ noise }: { noise: number }) {
+  const bars = 76;
+  // A fixed pattern, so the strip is stable between renders and identical on
+  // every device — this is a printed legend, not a live meter. Easy is a clean
+  // carrier with silence between the peaks; Hard buries the same signal in a
+  // noise floor you have to listen through.
+  const scatter = (i: number) => {
+    const x = Math.sin(i * 127.1 + noise * 311.7) * 43758.5453;
+    return x - Math.floor(x);
+  };
+  const heights = Array.from({ length: bars }, (_, i) => {
+    const envelope = Math.abs(Math.sin(i * 0.21)) ** (3 - noise);
+    const floor = noise * 0.24 * scatter(i);
+    return Math.min(1, envelope * (0.92 - noise * 0.16) + floor);
+  });
+
+  return (
+    <span aria-hidden="true" className="engrave block h-5 overflow-hidden rounded">
+      <svg
+        viewBox={`0 0 ${bars * 2.4 - 0.9} 20`}
+        preserveAspectRatio="none"
+        className="h-full w-full"
+      >
+        {heights.map((h, i) => (
+          <rect
+            key={i}
+            x={i * 2.4}
+            y={10 - h * 8.6}
+            width="1.5"
+            height={Math.max(0.8, h * 17.2)}
+            rx="0.75"
+            fill="var(--color-signal)"
+            opacity={0.1 + h * 0.42}
+          />
+        ))}
+      </svg>
+    </span>
   );
 }
 
