@@ -44,7 +44,7 @@ export default defineConfig({
         // Precache the app shell *and* every audio clip, so a player who has
         // opened the app once can play a full round with no network at all.
         // The whole Opus corpus is ~2.6 MB, which makes this affordable.
-        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,opus}'],
+        globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest,opus,woff2}'],
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
         cleanupOutdatedCaches: true,
         // Must carry the base. Workbox matches this against a real URL, so a

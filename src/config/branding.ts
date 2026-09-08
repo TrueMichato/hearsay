@@ -18,8 +18,8 @@ export const BRANDING = {
   /** Canonical repository URL. Wikimedia requires a contactable UA string. */
   repository: 'https://github.com/TrueMichato/hearsay',
   /** Theme colour for the PWA manifest and the browser chrome. */
-  themeColor: '#0f172a',
-  backgroundColor: '#0f172a',
+  themeColor: '#0c0906',
+  backgroundColor: '#060402',
 } as const;
 
 /** Machine-safe slug derived from the name. Used for cache keys and storage ids. */

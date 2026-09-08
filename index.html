@@ -7,12 +7,35 @@
     <meta name="theme-color" content="%APP_THEME_COLOR%" />
     <meta name="description" content="%APP_DESCRIPTION%" />
     <!--
-      `mobile-web-app-capable` is the standard; the `apple-` prefixed form is
-      the deprecated original, kept because older iOS only understands that one.
+      The standard name. The `apple-` prefixed original is deliberately absent:
+      Chrome logs a deprecation warning for it, and iOS has read the standard
+      name since Safari 17.4. Adding it back re-introduces the console warning.
     -->
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
     <title>%APP_NAME%</title>
+
+    <!--
+      ========================= DESIGN CONTRACT =========================
+      THESIS: A game about listening for a signal and naming its origin is a
+      shortwave receiver, so it is built as one. It refuses the grid-of-cards
+      app shell: there are no cards here, only a milled front panel.
+
+      OWN-WORLD: Warm chassis black under amber backlight. Four materials —
+      chassis, brushed panel, engraved well, emitted light — and one rule:
+      text is PRINTED ink on metal; glow is reserved for what is live right
+      now. Type is equipment type: condensed nameplates, mono readouts.
+
+      STORY: The player sweeps a band of sixteen stations, hears each one, and
+      files it under a language. Listening costs nothing and commits nothing.
+
+      FIRST VIEWPORT: Dial plate and signal-strength meter at the top, the
+      4x4 band of stations filling the middle, the tuner readout with the live
+      waveform beneath it, band selectors at the thumb, transmit at the base.
+
+      FORM: Shortwave receiver — pinned by the user over bold-arcade and
+      editorial-puzzle alternatives. No seed roll: a pinned brief beats it.
+      ===================================================================
+    -->
   </head>
   <body>
     <div id="root"></div>
