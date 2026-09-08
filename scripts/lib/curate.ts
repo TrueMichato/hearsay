@@ -21,6 +21,8 @@ export interface ParsedFilename {
   iso: string;
   speaker: string;
   word: string;
+  /** The whole `speaker-word` segment, kept so `refineWord` can re-split it. */
+  rest: string;
 }
 
 /**
@@ -45,7 +47,29 @@ export function parseFilename(title: string): ParsedFilename | null {
     speaker: rest.slice(0, dash).trim(),
     // Normalise to NFC so that, e.g., composed and decomposed "ñ" dedupe together.
     word: rest.slice(dash + 1).normalize('NFC').trim(),
+    rest: rest.normalize('NFC').trim(),
   };
+}
+
+/**
+ * Re-split `speaker-word` once the speaker's real name is known.
+ *
+ * The filename format `LL-Q1321 (spa)-<speaker>-<word>.wav` is ambiguous when
+ * either half contains a hyphen, and `parseFilename` can only guess: it splits
+ * at the first one. For the contributor `Wikipedian-walker` that guess is wrong,
+ * and the credits page duly published the word "walker-epíteto" — a word that
+ * does not exist, credited alongside a real person's name.
+ *
+ * Commons resolves the ambiguity for us. Each file's `Artist` metadata carries
+ * the speaker's actual display name, so once it has been fetched we can strip it
+ * as a literal prefix. This only rewrites the word when the authoritative
+ * speaker really is a prefix of the filename remainder, so a display name that
+ * differs from the filename segment leaves the original guess untouched.
+ */
+export function refineWord(rest: string, speaker: string): string {
+  const prefix = `${speaker}-`;
+  if (!rest.startsWith(prefix) || rest.length <= prefix.length) return rest.slice(rest.indexOf('-') + 1);
+  return rest.slice(prefix.length).normalize('NFC').trim();
 }
 
 /** Every reason a candidate can be rejected. Used to build the audit tally. */
@@ -53,6 +77,7 @@ export type RejectionReason =
   | 'unparseable-filename'
   | 'wrong-language'
   | 'multi-word'
+  | 'bound-morpheme'
   | 'contains-digits'
   | 'contains-punctuation'
   | 'too-short'
@@ -136,6 +161,13 @@ export function curateWord(word: string, script: ScriptFamily): CurationVerdict 
   if (RE_WHITESPACE.test(word)) return reject('multi-word');
   if (RE_DIGIT.test(word)) return reject('contains-digits');
 
+  // A leading or trailing hyphen marks a bound morpheme — a prefix or suffix
+  // that is never spoken alone. Commons holds plenty of them ("секс-", "dar-").
+  // They are not wrong data, but they are not words either: a tile playing a
+  // fragment gives the player less signal than a real word, and the credits
+  // page would list something no dictionary contains.
+  if (/^[-‐‑–—]|[-‐‑–—]$/u.test(word)) return reject('bound-morpheme');
+
   // Anything that is neither a letter of the target script nor an allowed
   // in-word punctuation mark (commas, dots, middots, brackets, "・", "…").
   for (const c of word) {
@@ -162,10 +194,16 @@ export function curateWord(word: string, script: ScriptFamily): CurationVerdict 
 
   if (!matchesScript(word, script)) return reject('wrong-script');
 
-  // Case-based proper-noun detection. Valid for our Latin- and Cyrillic-script
-  // languages, where common nouns are lowercase. It would be WRONG for German,
-  // which capitalises all nouns — hence keying off `script`, not a global rule,
-  // and why adding German later needs a per-language override.
+  // Case-based proper-noun detection. Common nouns are lowercase in every
+  // Latin- and Cyrillic-script language here *except German*, which capitalises
+  // all nouns — so for German this rule also throws away every ordinary noun.
+  //
+  // We keep it anyway, deliberately. Case is the only signal that separates
+  // "Berlin" from "Buch" without a dictionary, and a board of proper nouns is
+  // far more damaging than a board with no nouns: names travel between
+  // languages and are often said with foreign phonology, which is precisely the
+  // unfairness this whole module exists to prevent. German's 26,112 recordings
+  // leave ample verbs, adjectives and adverbs to fill 40 slots.
   if (script === 'latin' || script === 'cyrillic') {
     const first = word[0];
     if (first !== first.toLowerCase()) return reject('proper-noun-capitalised');
